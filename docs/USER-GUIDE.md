@@ -41,6 +41,35 @@ warranties, limited editions and collectibles, memberships and loyalty passes.
 Requirements: BTCPay Server **2.2.0 or newer**. No extra infrastructure is
 needed in Hosted mode; self-custody mode needs your own `tapd` node (see §8).
 
+### I don't run BTCPay Server yet — how do I start?
+
+BTCPay Server is not a website you sign up for — it is **free, open-source
+software that each merchant runs on their own server**, under their own
+domain. There is no central login at btcpayserver.org; that is just the
+project's homepage. To use this plugin you first need a BTCPay instance of
+your own. From easiest to most technical:
+
+1. **Third-party host** — providers run BTCPay for you and give you an
+   account on their instance; some are free. See the official list:
+   [Third-Party Hosting](https://docs.btcpayserver.org/Deployment/ThirdPartyHosting/).
+   Fastest start, but you trust the host with your instance.
+2. **One-click deploy (~$10/month)** — the
+   [LunaNode launcher](https://launchbtcpay.lunanode.com) sets up a complete
+   instance for you in minutes by filling in a web form. The recommended path
+   if you want your own server without touching a command line.
+3. **Docker on your own VPS** — full control; follow the
+   [official deployment docs](https://docs.btcpayserver.org/Deployment/).
+4. **Home node** — Umbrel, Start9 and RaspiBlitz ship BTCPay as an
+   installable app.
+
+Once your instance is up, come back to step 1 of the installation above —
+the plugin adds itself to your Store's sidebar and your BDO account is
+created with just an email (§3).
+
+> Just want to **claim** a BDO someone sent you? You don't need BTCPay at
+> all — claim links and drop pages work in any browser with only your email
+> (see §7).
+
 ---
 
 ## 3. Getting started — your BDO account
