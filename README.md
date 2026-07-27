@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/img/bdo-icon.jpg" alt="Bitcoin Digital Objects" width="140" />
+</p>
+
 # Bitcoin Digital Objects for BTCPay Server
 
 **Issue, verify, deliver and manage Bitcoin Digital Objects (BDOs) — unique,
