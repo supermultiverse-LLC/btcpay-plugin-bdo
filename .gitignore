@@ -33,6 +33,8 @@ tls.cert
 admin.macaroon
 
 # Local BTCPay reference assemblies
-lib/
+# NOTE: lib/ is intentionally TRACKED in this repo — it carries the pinned
+# BTCPay host assemblies the plugin compiles against (MIT-licensed), which the
+# Plugin Builder needs to build from a bare clone.
 
 tapd-transfer-debug.json
