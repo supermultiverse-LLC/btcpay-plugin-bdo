@@ -114,6 +114,23 @@ public sealed class ManagedWalletClient
     public Task<ManagedClaimRedeemResult> RedeemClaimAsync(string code, CancellationToken ct = default)
         => PostJsonAsync<ManagedClaimRedeemResult>("managed-wallet-send-claim", new { redeem_code = code }, idempotencyKey: null, ct);
 
+    /// <summary>POST — create a DROP: one URL/QR dispensing the given held units
+    /// first come, first served (RFC-PLUGIN-010). <paramref name="rewardCreditSats"/>
+    /// optionally gifts credits per claim, funded from THIS account's balance.</summary>
+    public Task<ManagedCampaignCreated> CreateCampaignAsync(string name, IEnumerable<string> assetIds, long rewardCreditSats = 0, CancellationToken ct = default)
+        => PostJsonAsync<ManagedCampaignCreated>(
+            "managed-wallet-send-claim",
+            new { campaign_name = name, campaign_asset_ids = assetIds.ToArray(), reward_credit_sats = rewardCreditSats },
+            idempotencyKey: null, ct);
+
+    /// <summary>GET ?campaigns=1 — the caller's active drops with live counters.</summary>
+    public Task<ManagedCampaignList> ListCampaignsAsync(CancellationToken ct = default)
+        => GetAsync<ManagedCampaignList>("managed-wallet-send-claim?campaigns=1", ct);
+
+    /// <summary>POST {campaign_cancel} — close a drop (claimed units untouched).</summary>
+    public Task CancelCampaignAsync(string campaignId, CancellationToken ct = default)
+        => PostJsonAsync<ManagedClaimRedeemResult>("managed-wallet-send-claim", new { campaign_cancel = campaignId }, idempotencyKey: null, ct);
+
     // ── Premium subscription (additive; journey GAP G1) ────────────────────────
 
     /// <summary>GET /managed-wallet-subscribe — current plan + purchasable tiers.</summary>

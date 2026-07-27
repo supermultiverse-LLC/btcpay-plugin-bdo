@@ -12,7 +12,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Product>Bitcoin Digital Objects</Product>
     <Description>Issue, verify and manage Bitcoin Digital Objects (BDOs) from BTCPay Server.</Description>
-    <Version>0.17.3</Version>
+    <Version>0.18.3</Version>
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
     <PreserveCompilationContext>false</PreserveCompilationContext>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>

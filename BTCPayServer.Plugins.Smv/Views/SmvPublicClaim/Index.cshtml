@@ -66,7 +66,20 @@
         <div class="notice">@Model.Notice</div>
     }
 
-    @if (Model.Stage == PublicClaimStage.Enter)
+    @if (Model.Stage == PublicClaimStage.Enter && Model.CampaignId is not null)
+    {
+        @* Drop terminal states (complete / closed / unknown): no code entry —
+           there is nothing to type on a drop. The error banner above explains. *@
+        <div class="card center">
+            <h2>@(Model.DropName ?? "This drop")</h2>
+            @if (Model.DropTotal > 0)
+            {
+                <p class="muted">@Model.DropClaimed of @Model.DropTotal claimed</p>
+            }
+        </div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Enter && Model.CampaignId is null)
     {
         <div class="card">
             <h2>Enter your claim code</h2>
@@ -87,10 +100,30 @@
             {
                 <img class="asset-img" src="@Model.AssetImageUrl" alt="@Model.AssetName" />
             }
-            <h2>@Model.AssetName</h2>
-            <div class="muted">
-                @Model.CollectionName@(string.IsNullOrWhiteSpace(Model.IssuerName) ? "" : $" · {Model.IssuerName}")
-            </div>
+            @{
+                var cardTitle = Model.CampaignId is not null ? (Model.DropName ?? Model.AssetName) : Model.AssetName;
+                // Don't echo the title: a drop named after its collection (the
+                // common case) was rendering "X · X" under an "X" heading.
+                var subParts = new System.Collections.Generic.List<string>();
+                if (!string.IsNullOrWhiteSpace(Model.CollectionName) && !string.Equals(Model.CollectionName, cardTitle, StringComparison.OrdinalIgnoreCase))
+                    subParts.Add(Model.CollectionName!);
+                if (!string.IsNullOrWhiteSpace(Model.IssuerName) && !string.Equals(Model.IssuerName, cardTitle, StringComparison.OrdinalIgnoreCase))
+                    subParts.Add(Model.IssuerName!);
+            }
+            <h2>@cardTitle</h2>
+            @if (subParts.Count > 0)
+            {
+                <div class="muted">@string.Join(" · ", subParts)</div>
+            }
+            @if (Model.CampaignId is not null && Model.DropTotal > 0)
+            {
+                @* The live pulse of a drop — updates on every reload. *@
+                <p style="font-weight:600;margin:.5rem 0 0;">
+                    @Model.DropClaimed of @Model.DropTotal claimed ·
+                    <span style="color:#16a34a;">@(Model.DropTotal - Model.DropClaimed) left</span>
+                </p>
+                <p class="muted" style="margin-top:.25rem;">First come, first served — one per person.</p>
+            }
             @if (!string.IsNullOrWhiteSpace(Model.AssetDescription))
             {
                 <p class="muted">@Model.AssetDescription</p>
@@ -100,13 +133,16 @@
 
     @if (Model.Stage == PublicClaimStage.Card)
     {
+        var sendCodeAction = Model.CampaignId is not null
+            ? $"/plugins/smv/drop/{storeId}/{Model.CampaignId}/send-code"
+            : $"/plugins/smv/claim/{storeId}/send-code";
         <div class="card">
-            <h2>Claim it with your email</h2>
+            <h2>@(Model.CampaignId is not null ? "Claim yours with your email" : "Claim it with your email")</h2>
             <p class="muted">
                 We'll email you a 6-digit code — no password needed. New here? Your
                 account is created automatically; your email is how you get back to it.
             </p>
-            <form method="post" action="/plugins/smv/claim/@storeId/send-code">
+            <form method="post" action="@sendCodeAction">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="code" value="@Model.Code" />
                 <label for="email">Email</label>
@@ -125,20 +161,32 @@
 
     @if (Model.Stage == PublicClaimStage.Otp)
     {
+        var claimAction = Model.CampaignId is not null
+            ? $"/plugins/smv/drop/{storeId}/{Model.CampaignId}/claim"
+            : $"/plugins/smv/claim/{storeId}/claim";
+        var resendAction = Model.CampaignId is not null
+            ? $"/plugins/smv/drop/{storeId}/{Model.CampaignId}/send-code"
+            : $"/plugins/smv/claim/{storeId}/send-code";
         <div class="card">
             <h2>Enter the code from your email</h2>
-            <form method="post" action="/plugins/smv/claim/@storeId/claim">
+            <form method="post" action="@claimAction">
                 @Html.AntiForgeryToken()
-                <input type="hidden" name="code" value="@Model.Code" />
+                @if (Model.CampaignId is null)
+                {
+                    <input type="hidden" name="code" value="@Model.Code" />
+                }
                 <input type="hidden" name="email" value="@Model.Email" />
                 <label for="otp">6-digit code</label>
                 <input id="otp" name="otp" type="text" class="code-input" inputmode="numeric"
                        autocomplete="one-time-code" maxlength="10" required autofocus />
-                <button type="submit">Claim my BDO</button>
+                <button type="submit">@(Model.CampaignId is not null ? "Claim mine" : "Claim my BDO")</button>
             </form>
-            <form method="post" action="/plugins/smv/claim/@storeId/send-code" style="margin-top:.6rem;">
+            <form method="post" action="@resendAction" style="margin-top:.6rem;">
                 @Html.AntiForgeryToken()
-                <input type="hidden" name="code" value="@Model.Code" />
+                @if (Model.CampaignId is null)
+                {
+                    <input type="hidden" name="code" value="@Model.Code" />
+                }
                 <input type="hidden" name="email" value="@Model.Email" />
                 <input type="hidden" name="tosAccepted" value="true" />
                 <button type="submit" style="background:transparent;color:inherit;font-weight:400;font-size:.85rem;text-decoration:underline;">

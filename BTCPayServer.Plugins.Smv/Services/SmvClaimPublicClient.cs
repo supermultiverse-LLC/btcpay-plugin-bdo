@@ -89,6 +89,58 @@ public sealed class SmvClaimPublicClient
         return new ClaimOutcome(success, Str(row, "error_code"), Str(row, "error_message"));
     }
 
+    public sealed record CampaignInfo(
+        string? CampaignId, string? Name, string? Status,
+        long Total, long Claimed,
+        string? AssetName, string? AssetImageUrl, string? CollectionName, string? IssuerName);
+
+    /// <summary>RPC lookup_campaign — anon read for the public drop page. Null = unknown.</summary>
+    public async Task<CampaignInfo?> LookupCampaignAsync(string campaignId, CancellationToken ct)
+    {
+        using var doc = await RpcAsync("lookup_campaign", new { p_campaign = campaignId }, bearer: _anonKey, ct);
+        if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+            return null;
+        var r = doc.RootElement[0];
+        return new CampaignInfo(
+            Str(r, "campaign_id"), Str(r, "name"), Str(r, "status"),
+            Long(r, "total"), Long(r, "claimed"),
+            Str(r, "asset_name"), Str(r, "asset_image_url"), Str(r, "collection_name"), Str(r, "issuer_name"));
+    }
+
+    public sealed record DropClaimOutcome(bool Success, string? ErrorCode, string? ErrorMessage, string? AssetName);
+
+    /// <summary>RPC claim_next_from_campaign with the recipient's JWT — atomically
+    /// assigns the next available unit of the drop to the caller (RFC-PLUGIN-010).</summary>
+    public async Task<DropClaimOutcome> ClaimNextAsync(string campaignId, string recipientJwt, CancellationToken ct)
+    {
+        string? walletId = null;
+        try
+        {
+            using var req = new HttpRequestMessage(
+                HttpMethod.Get, $"{_restBase}/wallets?select=id&wallet_type=eq.personal&limit=1");
+            Decorate(req, recipientJwt);
+            using var resp = await _http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                    walletId = Str(doc.RootElement[0], "id");
+            }
+        }
+        catch { /* non-fatal */ }
+
+        using var result = await RpcAsync("claim_next_from_campaign",
+            new { p_campaign = campaignId, p_wallet_id = walletId }, recipientJwt, ct);
+        if (result is null || result.RootElement.ValueKind != JsonValueKind.Array || result.RootElement.GetArrayLength() == 0)
+            return new DropClaimOutcome(false, "empty_response", null, null);
+        var row = result.RootElement[0];
+        var success = row.TryGetProperty("success", out var s) && s.ValueKind == JsonValueKind.True;
+        return new DropClaimOutcome(success, Str(row, "error_code"), Str(row, "error_message"), Str(row, "asset_name"));
+    }
+
+    private static long Long(JsonElement e, string name)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && p.TryGetInt64(out var v) ? v : 0;
+
     private async Task<JsonDocument?> RpcAsync(string fn, object body, string bearer, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_restBase}/rpc/{fn}")

@@ -155,6 +155,144 @@ public class SmvPublicClaimController : Controller
         return View("Index", vm);
     }
 
+    // ── Drops (RFC-PLUGIN-010): one URL/QR dispenses a series ───────────────
+    // Same anonymous page and email→code flow as a single claim; the claim
+    // step atomically receives the NEXT available unit instead of a fixed one.
+
+    [HttpGet("/plugins/smv/drop/{storeId}/{campaignId}")]
+    public async Task<IActionResult> Drop(string storeId, string campaignId, CancellationToken ct)
+    {
+        var vm = await BaseVmAsync(storeId, ct);
+        if (vm is null) return NotFound();
+        await FillDropAsync(vm, campaignId, ct);
+        return View("Index", vm);
+    }
+
+    [HttpPost("/plugins/smv/drop/{storeId}/{campaignId}/send-code")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DropSendCode(string storeId, string campaignId, string email, bool tosAccepted, CancellationToken ct)
+    {
+        var vm = await BaseVmAsync(storeId, ct);
+        if (vm is null) return NotFound();
+        if (Throttled(DropMaxPostsPerWindow)) { await FillDropAsync(vm, campaignId, ct); vm.Error = "Too many attempts from this connection. Please wait a few minutes and try again."; return View("Index", vm); }
+
+        email = (email ?? "").Trim();
+        await FillDropAsync(vm, campaignId, ct);
+        if (vm.Stage != PublicClaimStage.Card) return View("Index", vm);
+        if (string.IsNullOrWhiteSpace(email)) { vm.Error = "Enter your email."; return View("Index", vm); }
+        if (!tosAccepted) { vm.Error = "Please accept the Terms of Service to continue."; return View("Index", vm); }
+
+        try
+        {
+            await (await BuildOAuthClientAsync()).RequestEmailCodeAsync(email, tosAccepted: true, ct);
+            vm.Stage = PublicClaimStage.Otp;
+            vm.Email = email;
+            vm.Notice = $"We emailed a 6-digit code to {email}. Enter it below to claim yours.";
+        }
+        catch (SmvOAuthException ex)
+        {
+            _log.LogInformation("public_drop.otp_request_failed store={StoreId} status={Status}", storeId, ex.StatusCode);
+            vm.Error = ex.StatusCode == 429
+                ? "Too many codes requested. Please wait a minute and try again."
+                : "Could not send the code. Please try again.";
+        }
+        return View("Index", vm);
+    }
+
+    [HttpPost("/plugins/smv/drop/{storeId}/{campaignId}/claim")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DropClaim(string storeId, string campaignId, string email, string otp, CancellationToken ct)
+    {
+        var vm = await BaseVmAsync(storeId, ct);
+        if (vm is null) return NotFound();
+        if (Throttled(DropMaxPostsPerWindow)) { await FillDropAsync(vm, campaignId, ct); vm.Error = "Too many attempts from this connection. Please wait a few minutes and try again."; return View("Index", vm); }
+
+        email = (email ?? "").Trim();
+        otp = (otp ?? "").Trim();
+        await FillDropAsync(vm, campaignId, ct);
+        if (vm.Stage != PublicClaimStage.Card) return View("Index", vm);
+
+        vm.Stage = PublicClaimStage.Otp;
+        vm.Email = email;
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(otp))
+        {
+            vm.Error = "Enter the 6-digit code from the email.";
+            return View("Index", vm);
+        }
+
+        try
+        {
+            var tokens = await (await BuildOAuthClientAsync()).VerifyEmailCodeAsync(email, otp, ct);
+            var outcome = await (await BuildClaimClientAsync()).ClaimNextAsync(campaignId, tokens.AccessToken, ct);
+            if (!outcome.Success)
+            {
+                _log.LogInformation("public_drop.claim_failed store={StoreId} code={Code}", storeId, outcome.ErrorCode);
+                vm.Error = outcome.ErrorCode switch
+                {
+                    "ALREADY_CLAIMED_YOURS" => "This account already claimed its unit from this drop.",
+                    "DROP_EXHAUSTED" => "All units have been claimed — this drop is complete.",
+                    "DROP_CLOSED" => "This drop has been closed by the issuer.",
+                    _ => outcome.ErrorMessage ?? "The claim could not be completed. Please try again.",
+                };
+                return View("Index", vm);
+            }
+            vm.Stage = PublicClaimStage.Done;
+            vm.AssetName = outcome.AssetName ?? vm.AssetName;
+            _log.LogInformation("public_drop.claimed store={StoreId} campaign={CampaignId}", storeId, campaignId);
+        }
+        catch (SmvOAuthException ex) when (ex.StatusCode is 400 or 401 or 403)
+        {
+            vm.Error = "That code is wrong or has expired — enter it again, or request a new one.";
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "public_drop.unexpected store={StoreId}", storeId);
+            vm.Error = "Something went wrong. Please try again.";
+        }
+        return View("Index", vm);
+    }
+
+    private async Task FillDropAsync(PublicClaimViewModel vm, string campaignId, CancellationToken ct)
+    {
+        vm.CampaignId = campaignId;
+        try
+        {
+            var c = await (await BuildClaimClientAsync()).LookupCampaignAsync(campaignId, ct);
+            if (c is null)
+            {
+                vm.Stage = PublicClaimStage.Enter;
+                vm.Error = "This drop does not exist.";
+                return;
+            }
+            vm.DropName = c.Name;
+            vm.DropTotal = c.Total;
+            vm.DropClaimed = c.Claimed;
+            vm.AssetName = c.AssetName;
+            vm.AssetImageUrl = c.AssetImageUrl;
+            vm.CollectionName = c.CollectionName;
+            vm.IssuerName = c.IssuerName;
+            if (!string.Equals(c.Status, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                vm.Stage = PublicClaimStage.Enter;
+                vm.Error = "This drop has been closed by the issuer.";
+                return;
+            }
+            if (c.Claimed >= c.Total && c.Total > 0)
+            {
+                vm.Stage = PublicClaimStage.Enter;
+                vm.Error = "All units have been claimed — this drop is complete.";
+                return;
+            }
+            vm.Stage = PublicClaimStage.Card;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "public_drop.lookup_failed");
+            vm.Stage = PublicClaimStage.Enter;
+            vm.Error = "Something went wrong. Please try again.";
+        }
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private async Task<PublicClaimViewModel?> BaseVmAsync(string storeId, CancellationToken ct)
@@ -231,7 +369,7 @@ public class SmvPublicClaimController : Controller
     private static string? NormalizeCode(string? code)
         => string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
 
-    private bool Throttled()
+    private bool Throttled(int maxPerWindow = MaxPostsPerWindow)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var key = $"smv-public-claim:{ip}";
@@ -240,10 +378,16 @@ public class SmvPublicClaimController : Controller
             e.AbsoluteExpirationRelativeToNow = ThrottleWindow;
             return 0;
         });
-        if (count >= MaxPostsPerWindow) return true;
+        if (count >= maxPerWindow) return true;
         _cache.Set(key, count + 1, ThrottleWindow);
         return false;
     }
+
+    // Live events share ONE venue IP (audit 2026-07-27): the single-claim
+    // budget of 10/10min would wall off an audience after ~5 people. Drops
+    // get room for ~150 people per IP per window — the real anti-abuse is
+    // one-per-account + single-use OTP + the platform's own rate limits.
+    private const int DropMaxPostsPerWindow = 300;
 
     private IActionResult TooMany(PublicClaimViewModel vm, string? code)
     {
@@ -261,6 +405,11 @@ public class PublicClaimViewModel
     public string StoreId { get; set; } = "";
     public string StoreName { get; set; } = "";
     public string? Code { get; set; }
+    // Drop mode (RFC-PLUGIN-010): set when the page serves a campaign URL.
+    public string? CampaignId { get; set; }
+    public string? DropName { get; set; }
+    public long DropTotal { get; set; }
+    public long DropClaimed { get; set; }
     public string? Email { get; set; }
     public PublicClaimStage Stage { get; set; } = PublicClaimStage.Enter;
     public string? Error { get; set; }

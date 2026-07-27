@@ -3,6 +3,30 @@
 All notable changes to the Bitcoin Digital Objects plugin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org/).
 
+## [0.18.3] - 2026-07-27
+
+### Added
+- **Drops — one QR for a whole audience**: turn N held units of a collection
+  into ONE public URL/QR on your own domain. Each person claims their own
+  unit with just an email — first come, first served, one per person, units
+  dispensed in order with a live "X of N claimed" counter. Optionally gift
+  credits to each claimer, funded from your own balance at claim time.
+  Close a drop any time; claimed units are untouched. Built for live events.
+- **Redeem claim codes from the Receive tab**: paste a `BDO-XXXX` code
+  someone sent your Store and the BDO lands directly in the Store's wallet,
+  confirmed on My BDOs.
+- The Send panel's claim section shows the bare code with its own Copy
+  button, and surfaces an already-open link in place (URL + QR + cancel).
+
+### Changed
+- Concurrency and live-event hardening: atomic unit assignment under
+  concurrent claims, same-account double-claim protection, and a
+  venue-grade rate limit on drop pages (audiences share one venue IP).
+- Settings shows the contracted plan's full benefits; backend selector
+  auto-saves; account state never reads "Connected" while a reconnect is
+  needed; redeem success lands on My BDOs with a clear confirmation.
+- Custody note is collapsible with per-browser memory.
+
 ## [0.17.3] - 2026-07-27
 
 First publicly listed release. Highlights of the 0.13 → 0.17 series:

@@ -10,6 +10,15 @@
     // is null in the pre-anchor window (batch M3) — those units show as "confirming".
     var readyRows = Model.EnrichedRows ?? BackendViewAdapters.ToTapdAssets(Model.ReadyUnits);
     var pending = Model.PendingCount;
+
+    // Unit ids for the drop panel (plain loop — LINQ here trips Razor overload
+    // resolution into an unreferenced EF assembly).
+    var dropIdList = new System.Collections.Generic.List<string>();
+    foreach (var r in readyRows)
+    {
+        if (!string.IsNullOrWhiteSpace(r.AssetId)) dropIdList.Add(r.AssetId!);
+    }
+    var dropUnitIds = string.Join(",", dropIdList);
 }
 
 <h2 class="mb-3">@(Model.Name ?? "Collection")</h2>
@@ -63,6 +72,49 @@
     </div>
 }
 
+@if (ViewData["IsCustodial"] is true && readyRows.Count > 0)
+{
+    @* Drops (RFC-PLUGIN-010): one URL/QR that dispenses units of this
+       collection first come, first served — the live-event feature. Unit ids
+       travel as a data attribute; drops.js does the rest (CSP-safe). *@
+    <div class="card mb-3" data-drop-section
+         data-url-create="@Url.Action("DropCreate", "SmvClaim", new { storeId })"
+         data-url-list="@Url.Action("Drops", "SmvClaim", new { storeId })"
+         data-url-cancel="@Url.Action("DropCancel", "SmvClaim", new { storeId })"
+         data-collection-name="@Model.Name"
+         data-unit-ids="@dropUnitIds">
+        <div class="card-body">
+            <h5 class="card-title mb-1">Drop link <span class="text-muted small">— one QR, first come first served</span></h5>
+            <p class="small text-muted mb-2">
+                Share ONE link (or show its QR at a live event): each person claims their
+                own unit with just an email — one per person, until the drop runs out.
+            </p>
+            <div data-drop-list class="mb-2"></div>
+            <div class="d-flex gap-2 align-items-end flex-wrap" data-drop-create-form>
+                <div>
+                    <label class="form-label small mb-1">Units</label>
+                    <input type="number" class="form-control form-control-sm" style="width:6rem;"
+                           data-drop-count min="1" max="@readyRows.Count" value="@readyRows.Count" />
+                </div>
+                <div class="flex-grow-1" style="max-width:20rem;">
+                    <label class="form-label small mb-1">Drop name</label>
+                    <input type="text" class="form-control form-control-sm" data-drop-name
+                           value="@Model.Name" maxlength="120" />
+                </div>
+                <div>
+                    <label class="form-label small mb-1" title="Gift credits to each claimer — paid from YOUR credit balance at claim time">
+                        Gift credits <span class="text-muted">(optional)</span>
+                    </label>
+                    <input type="number" class="form-control form-control-sm" style="width:8rem;"
+                           data-drop-reward min="0" max="1000000" value="0" />
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" data-drop-create>Create drop link</button>
+            </div>
+            <p class="text-danger small d-none mt-2" data-drop-error></p>
+        </div>
+    </div>
+}
+
 @if (readyRows.Count == 0)
 {
     @if (pending == 0)
@@ -98,3 +150,4 @@ else
 @Html.AntiForgeryToken()
 <script src="~/plugins/smv/wallet.js"></script>
 <script src="~/plugins/smv/claim-link.js"></script>
+<script src="~/plugins/smv/drops.js"></script>

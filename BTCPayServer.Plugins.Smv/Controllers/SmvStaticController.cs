@@ -1746,6 +1746,142 @@ if (depth !== null && depth !== undefined) {
     // Settings backend toggle: show the Hosted or BYON section matching the dropdown
     // instantly (no save needed for the form to switch). Both sections are in the DOM;
     // the POST only consumes the active mode's fields, so this is purely presentational.
+    // Drops (RFC-PLUGIN-010): create/list/cancel drop campaigns from the
+    // collection page. One URL/QR dispenses the series first come, first
+    // served — the live-event feature. External file (CSP).
+    [HttpGet("drops.js")]
+    public IActionResult DropsJs()
+    {
+        const string js = """
+(function () {
+  "use strict";
+
+  var section = document.querySelector("[data-drop-section]");
+  if (!section) return;
+
+  var csrf = document.querySelector("input[name='__RequestVerificationToken']");
+  var urls = {
+    create: section.getAttribute("data-url-create"),
+    list: section.getAttribute("data-url-list"),
+    cancel: section.getAttribute("data-url-cancel")
+  };
+  var unitIds = (section.getAttribute("data-unit-ids") || "").split(",").filter(Boolean);
+  var listBox = section.querySelector("[data-drop-list]");
+
+  function setError(msg) {
+    var n = section.querySelector("[data-drop-error]");
+    if (n) { n.textContent = msg || "Something went wrong."; n.classList.remove("d-none"); }
+  }
+  function clearError() {
+    var n = section.querySelector("[data-drop-error]");
+    if (n) n.classList.add("d-none");
+  }
+
+  function renderDrop(d) {
+    var wrap = document.createElement("div");
+    wrap.className = "border rounded p-2 mb-2";
+    var head = document.createElement("div");
+    head.className = "d-flex justify-content-between align-items-center flex-wrap gap-2";
+    var title = document.createElement("div");
+    title.innerHTML = "<strong></strong> <span class='text-muted small'></span>";
+    title.querySelector("strong").textContent = d.name || "Drop";
+    title.querySelector("span").textContent = d.claimed + " of " + d.total + " claimed";
+    var cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "btn btn-link btn-sm text-danger p-0";
+    cancelBtn.textContent = "Close drop";
+    cancelBtn.addEventListener("click", function () {
+      clearError();
+      cancelBtn.disabled = true;
+      var fd = new FormData();
+      fd.append("campaignId", d.campaignId);
+      if (csrf) fd.append("__RequestVerificationToken", csrf.value);
+      fetch(urls.cancel, { method: "POST", body: fd, credentials: "same-origin" })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { cancelBtn.disabled = false; setError(res.j && res.j.message); return; }
+          wrap.remove();
+        })
+        .catch(function () { cancelBtn.disabled = false; setError("Network error."); });
+    });
+    head.appendChild(title);
+    head.appendChild(cancelBtn);
+
+    var urlGroup = document.createElement("div");
+    urlGroup.className = "input-group input-group-sm mt-2";
+    var input = document.createElement("input");
+    input.type = "text"; input.readOnly = true;
+    input.className = "form-control font-monospace";
+    input.value = d.dropUrl;
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn-outline-secondary";
+    copyBtn.textContent = "Copy link";
+    copyBtn.addEventListener("click", function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(input.value);
+      copyBtn.textContent = "Copied";
+      setTimeout(function () { copyBtn.textContent = "Copy link"; }, 1500);
+    });
+    urlGroup.appendChild(input);
+    urlGroup.appendChild(copyBtn);
+
+    var qrWrap = document.createElement("div");
+    qrWrap.className = "text-center mt-2";
+    var qr = document.createElement("img");
+    qr.alt = "Drop QR";
+    qr.className = "img-fluid rounded bg-white p-2";
+    qr.style.maxWidth = "200px";
+    qr.src = "/plugins/smv/qr?data=" + encodeURIComponent(d.dropUrl);
+    qrWrap.appendChild(qr);
+
+    wrap.appendChild(head);
+    wrap.appendChild(urlGroup);
+    wrap.appendChild(qrWrap);
+    listBox.appendChild(wrap);
+  }
+
+  function loadDrops() {
+    fetch(urls.list, { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : { drops: [] }; })
+      .then(function (j) {
+        if (!listBox) return;
+        listBox.innerHTML = "";
+        (j.drops || []).forEach(renderDrop);
+      })
+      .catch(function () {});
+  }
+
+  var createBtn = section.querySelector("[data-drop-create]");
+  if (createBtn) createBtn.addEventListener("click", function () {
+    clearError();
+    var count = parseInt((section.querySelector("[data-drop-count]") || {}).value, 10) || unitIds.length;
+    var name = ((section.querySelector("[data-drop-name]") || {}).value || "").trim() ||
+      (section.getAttribute("data-collection-name") || "Drop");
+    createBtn.disabled = true;
+    var reward = parseInt((section.querySelector("[data-drop-reward]") || {}).value, 10) || 0;
+    var fd = new FormData();
+    fd.append("name", name);
+    fd.append("unitIds", unitIds.join(","));
+    fd.append("count", String(count));
+    fd.append("rewardCredits", String(reward));
+    if (csrf) fd.append("__RequestVerificationToken", csrf.value);
+    fetch(urls.create, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        createBtn.disabled = false;
+        if (!res.ok) { setError(res.j && res.j.message); return; }
+        loadDrops();
+      })
+      .catch(function () { createBtn.disabled = false; setError("Network error."); });
+  });
+
+  loadDrops();
+})();
+""";
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        return Content(js, "application/javascript");
+    }
+
     // Custody note collapse (My BDOs): important but intrusive — the merchant can
     // fold the explanation and the choice persists per browser (localStorage), so
     // it isn't re-hidden every session. The one-line custody FACT stays visible.

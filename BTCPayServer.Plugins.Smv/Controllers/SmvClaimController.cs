@@ -197,7 +197,109 @@ public class SmvClaimController : Controller
         return RedirectToAction("Index", "SmvReceive", new { storeId });
     }
 
+    // ── Drops (RFC-PLUGIN-010): merchant-side management (JSON for drops.js) ──
+
+    [HttpPost("drop-create")]
+    [ValidateAntiForgeryToken]
+    [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+    public async Task<IActionResult> DropCreate(string storeId, string name, string unitIds, int count, long rewardCredits, CancellationToken ct)
+    {
+        name = (name ?? "").Trim();
+        var ids = (unitIds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (name.Length is 0 or > 120 || ids.Length == 0)
+            return BadRequest(new { message = "Give the drop a name." });
+        if (count < 1) count = ids.Length;
+        if (rewardCredits is < 0 or > 1_000_000)
+            return BadRequest(new { message = "Invalid reward amount." });
+        var selected = ids.Take(Math.Min(count, ids.Length)).ToArray();
+
+        var (http, error) = await BuildHttpAsync(storeId, ct);
+        if (http is null) return BadRequest(new { message = error });
+        try
+        {
+            var created = await new ManagedWalletClient(http).CreateCampaignAsync(name, selected, rewardCredits, ct);
+            _log.LogInformation("drop.created store={StoreId} campaign={CampaignId} total={Total}",
+                storeId, created.CampaignId, created.Total);
+            return Ok(new
+            {
+                campaignId = created.CampaignId,
+                total = created.Total,
+                skipped = created.Skipped.Count,
+                dropUrl = MerchantDropUrl(storeId, created.CampaignId)
+            });
+        }
+        catch (ManagedWalletApiException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "drop.create_failed store={StoreId}", storeId);
+            return BadRequest(new { message = "Couldn't create the drop. Try again." });
+        }
+        finally { http.Dispose(); }
+    }
+
+    [HttpGet("drops")]
+    [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+    public async Task<IActionResult> Drops(string storeId, CancellationToken ct)
+    {
+        var (http, error) = await BuildHttpAsync(storeId, ct);
+        if (http is null) return Ok(new { connected = false, message = error });
+        try
+        {
+            var list = await new ManagedWalletClient(http).ListCampaignsAsync(ct);
+            return Ok(new
+            {
+                connected = true,
+                drops = list.Campaigns.ConvertAll(c => new
+                {
+                    campaignId = c.CampaignId,
+                    name = c.Name,
+                    status = c.Status,
+                    total = c.Total,
+                    claimed = c.Claimed,
+                    collectionName = c.CollectionName,
+                    dropUrl = MerchantDropUrl(storeId, c.CampaignId)
+                })
+            });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "drop.list_failed store={StoreId}", storeId);
+            return Ok(new { connected = false, message = "Couldn't reach the platform." });
+        }
+        finally { http.Dispose(); }
+    }
+
+    [HttpPost("drop-cancel")]
+    [ValidateAntiForgeryToken]
+    [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+    public async Task<IActionResult> DropCancel(string storeId, string campaignId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(campaignId))
+            return BadRequest(new { message = "Invalid request." });
+        var (http, error) = await BuildHttpAsync(storeId, ct);
+        if (http is null) return BadRequest(new { message = error });
+        try
+        {
+            await new ManagedWalletClient(http).CancelCampaignAsync(campaignId.Trim(), ct);
+            _log.LogInformation("drop.cancelled store={StoreId} campaign={CampaignId}", storeId, campaignId);
+            return Ok(new { cancelled = true });
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "drop.cancel_failed store={StoreId}", storeId);
+            return BadRequest(new { message = "Couldn't cancel the drop. Try again." });
+        }
+        finally { http.Dispose(); }
+    }
+
     /// <summary>The white-label claim URL on THIS BTCPay instance (RFC-PLUGIN-009).</summary>
     private string MerchantClaimUrl(string storeId, string? code)
         => $"{Request.Scheme}://{Request.Host}/plugins/smv/claim/{Uri.EscapeDataString(storeId)}?code={Uri.EscapeDataString(code ?? "")}";
+
+    /// <summary>The public drop URL on THIS BTCPay instance (RFC-PLUGIN-010).</summary>
+    private string MerchantDropUrl(string storeId, string? campaignId)
+        => $"{Request.Scheme}://{Request.Host}/plugins/smv/drop/{Uri.EscapeDataString(storeId)}/{Uri.EscapeDataString(campaignId ?? "")}";
 }

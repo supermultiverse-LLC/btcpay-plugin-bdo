@@ -146,6 +146,36 @@ public sealed class ManagedClaimRedeemResult
     [JsonPropertyName("asset_name")] public string? AssetName { get; set; }
 }
 
+// ── Drops (RFC-PLUGIN-010): one URL/QR dispenses a series ──────────────────────
+
+/// <summary>POST {campaign_name, campaign_asset_ids} — drop creation outcome.</summary>
+public sealed class ManagedCampaignCreated
+{
+    [JsonPropertyName("campaign_id")] public string? CampaignId { get; set; }
+    [JsonPropertyName("total")] public int Total { get; set; }
+    [JsonPropertyName("skipped")] public List<string> Skipped { get; set; } = new();
+}
+
+/// <summary>A drop campaign with live counters (lookup_campaign shape).</summary>
+public sealed class ManagedCampaign
+{
+    [JsonPropertyName("campaign_id")] public string? CampaignId { get; set; }
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("status")] public string? Status { get; set; }
+    [JsonPropertyName("total")] public long Total { get; set; }
+    [JsonPropertyName("claimed")] public long Claimed { get; set; }
+    [JsonPropertyName("asset_name")] public string? AssetName { get; set; }
+    [JsonPropertyName("asset_image_url")] public string? AssetImageUrl { get; set; }
+    [JsonPropertyName("collection_name")] public string? CollectionName { get; set; }
+    [JsonPropertyName("issuer_name")] public string? IssuerName { get; set; }
+}
+
+/// <summary>GET ?campaigns=1 — the caller's active drops.</summary>
+public sealed class ManagedCampaignList
+{
+    [JsonPropertyName("campaigns")] public List<ManagedCampaign> Campaigns { get; set; } = new();
+}
+
 /// <summary>GET /managed-wallet-subscribe?intent_id=… — activation status.</summary>
 public sealed class ManagedSubscriptionStatus
 {

@@ -163,6 +163,16 @@ login page) or withdraw the BDO to their own node.
   (with its QR and a **Cancel link** button) so you can re-share or revoke it.
 - The BDO only leaves your wallet at the moment your customer redeems it.
 
+### Drops — one QR for a whole audience
+
+From a collection page, **Create drop link** turns N of your held units into
+ONE public URL (with a QR ready to project at a live event): each person who
+opens it claims their own unit with just an email — first come, first
+served, one per person, units dispensed in order (#01, #02, …) with a live
+"X of N claimed" counter. Optionally gift credits to each claimer, paid
+from your own credit balance at claim time. Close the drop any time;
+already-claimed units are untouched.
+
 ### Taproot Assets address — full self-custody
 
 If your customer runs their own Taproot Assets node, paste their `tapbc1…`
