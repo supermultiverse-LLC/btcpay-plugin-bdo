@@ -1,0 +1,137 @@
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "About — Bitcoin Digital Objects (BDO)";
+
+    // Presentation only: show the actually installed plugin version from the
+    // assembly, instead of a hardcoded string. Falls back to "unknown" if the
+    // assembly version is unavailable.
+    var pluginVersion =
+        typeof(BTCPayServer.Plugins.Smv.SmvPlugin).Assembly.GetName().Version?.ToString(3)
+        ?? "unknown";
+}
+
+<section class="container my-4" style="max-width: 760px;">
+    <header class="mb-4">
+        <h1 class="mb-1">Bitcoin Digital Objects (BDO)</h1>
+        <p class="text-muted mb-0">Reference implementation for STAS-01</p>
+    </header>
+
+    <partial name="_SmvPluginNav" />
+
+    <p>
+        Bitcoin Digital Objects (BDOs) are verifiable digital objects secured by Bitcoin. <strong>Bitcoin Digital Objects</strong> is the reference implementation for
+        <strong>STAS-01</strong>, an open standard for issuing, signing, anchoring and
+        verifying Bitcoin-native digital assets.
+    </p>
+
+    <p>
+        Developed and maintained by Supermultiverse, this plugin lets BTCPay Server merchants
+        <strong>create, hold, send, receive and verify</strong> Bitcoin Digital Objects —
+        without leaving BTCPay.
+    </p>
+
+    <h2 class="mt-4">What this plugin does</h2>
+    <ul>
+        <li><strong>Create</strong> Bitcoin Digital Objects and mint them into a hosted wallet.</li>
+        <li><strong>Manage</strong> the BDOs you hold, and move them out any time with <strong>Send</strong>.</li>
+        <li><strong>Receive</strong> BDOs into a self-custody (BYON) wallet.</li>
+        <li><strong>Verify</strong> any BDO against Bitcoin mainnet by ID — proof integrity, issuer
+            signature and anchor data, validated independently.</li>
+        <li><strong>Inspect</strong> Bitcoin mainnet anchor data via <code>mempool.space</code>.</li>
+    </ul>
+
+    <h2 class="mt-4">STAS-01 Standard</h2>
+
+    <p>
+        STAS-01 defines how Bitcoin-native digital assets are:
+    </p>
+
+    <ul>
+        <li>Described through metadata.</li>
+        <li>Signed by an issuer.</li>
+        <li>Anchored to Bitcoin.</li>
+        <li>Distributed together with proof files.</li>
+        <li>Independently verified by third parties.</li>
+    </ul>
+
+    <p>
+        Bitcoin Digital Objects implements the STAS-01 verification workflow and serves as
+        the reference verifier for the standard.
+    </p>
+
+    <h2 class="mt-4">What is verified</h2>
+
+    <ul>
+        <li><strong>Proof integrity</strong> via SHA-256 against the issuer-published hash.</li>
+        <li><strong>Issuer signature</strong> over the metadata hash.</li>
+        <li><strong>Bitcoin anchor information</strong> including network and anchor outpoint.</li>
+        <li><strong>Bitcoin Digital Object proof data</strong> downloadable for independent validation.</li>
+    </ul>
+
+    <h2 class="mt-4">Trust model</h2>
+
+    <p>
+        Verification ultimately relies on Bitcoin mainnet data and cryptographic proofs.
+        APIs act only as distribution layers for publicly verifiable artifacts.
+    </p>
+
+    <p>
+        The STAS-01 trust model does not require trust in Supermultiverse or any issuer.
+        Once a proof has been downloaded, verification can be performed independently using
+        the proof file, issuer signature and Bitcoin anchor data.
+    </p>
+
+    <p>
+        In short:
+    </p>
+
+    <blockquote class="blockquote">
+        <p class="mb-0">Don't trust. Verify.</p>
+    </blockquote>
+
+    <h2 class="mt-4">Open Standard</h2>
+
+    <p>
+        STAS-01 is the open and auditable specification designed for interoperability across
+        Bitcoin-native digital asset ecosystems. Anyone may build compatible implementations
+        against it.
+    </p>
+
+    <p>
+        Bitcoin Digital Objects (BDOs) are the open category for Bitcoin-secured ownership.
+        Supermultiverse provides the reference implementation and platform. The Supermultiverse
+        platform itself is not open source.
+    </p>
+
+    <ul>
+        <li>
+            <a href="https://github.com/supermultiverse-LLC/stas-standard"
+               target="_blank"
+               rel="noopener noreferrer">
+                STAS-01 Standard Repository
+            </a>
+        </li>
+        <li>
+            <a href="https://github.com/supermultiverse-LLC/bitcoin-digital-objects"
+               target="_blank"
+               rel="noopener noreferrer">
+                Bitcoin Digital Objects Repository
+            </a>
+        </li>
+    </ul>
+
+    <footer class="mt-5 pt-3 border-top text-muted small">
+        <div class="mb-2">
+            <a href="https://bitcoindigitalobjects.com" target="_blank" rel="noopener noreferrer">bitcoindigitalobjects.com</a>
+            ·
+            <a href="https://x.com/bitcoinobjects" target="_blank" rel="noopener noreferrer">@@bitcoinobjects</a>
+        </div>
+        STAS-01 Reference Implementation · Powered by
+        <a href="https://supermultiverse.io"
+           target="_blank"
+           rel="noopener noreferrer">
+            Supermultiverse
+        </a>
+        · Plugin v@(pluginVersion)
+    </footer>
+</section>

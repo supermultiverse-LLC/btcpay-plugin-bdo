@@ -1,0 +1,89 @@
+@*
+    Internal horizontal navigation for the Bitcoin Digital Objects plugin.
+
+    This partial renders on BOTH the Store-scoped pages (My Assets / Receive /
+    Settings) and the PUBLIC Verify / About pages. Store-scoped links need a
+    storeId, which is resolved for LINK GENERATION ONLY:
+      1. the authorized Store context on Store-scoped pages, else
+      2. the origin storeId carried in the ?storeId= query string, so navigation
+         from a Store into a public page can build the links back.
+    The query value NEVER authorizes anything and is never used to resolve the
+    backend or load settings — the Store-scoped routes re-check permissions when
+    the user follows the link.
+
+    When there is no Store context at all (Verify / About opened directly), the
+    Store-scoped links are hidden — never emitted as invalid conventional routes
+    (e.g. /SmvMyAssets).
+
+    Verify and About stay public; they carry the origin storeId as a query value
+    (their routes have no {storeId} parameter, so it is appended, not embedded).
+*@
+@{
+    var smvPath = ViewContext.HttpContext.Request.Path.Value ?? string.Empty;
+
+    // storeId for navigation links only. Authoritative Store first (Store pages),
+    // else the origin storeId from the query (public pages reached from a Store).
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+    if (string.IsNullOrEmpty(storeId))
+        storeId = Context.Request.Query["storeId"].ToString();
+    // POST-rendered public pages (e.g. Verify SHA-256) carry the origin store in
+    // the form body rather than the query string.
+    if (string.IsNullOrEmpty(storeId) && Context.Request.HasFormContentType)
+        storeId = Context.Request.Form["storeId"].ToString();
+    if (string.IsNullOrEmpty(storeId))
+        storeId = null;
+
+    var hasStore = storeId is not null;
+
+    // storeId travels as a route value: it fills {storeId} on the Store-scoped
+    // routes and is appended as ?storeId= on the public Verify/About routes.
+    var navRoute = hasStore
+        ? new Dictionary<string, string> { ["storeId"] = storeId! }
+        : new Dictionary<string, string>();
+
+    string SmvActive(string segment) =>
+        smvPath.Contains(segment, System.StringComparison.OrdinalIgnoreCase) ? " active" : string.Empty;
+}
+
+<ul class="nav nav-pills smv-plugin-nav gap-1 mb-4 border-bottom pb-2">
+    @if (hasStore)
+    {
+        <li class="nav-item">
+            <a class="nav-link@(SmvActive("/my-assets"))"
+               asp-controller="SmvMyAssets" asp-action="Index" asp-route-storeId="@storeId">My BDOs</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link@(SmvActive("/create"))"
+               asp-controller="SmvCreate" asp-action="Index" asp-route-storeId="@storeId">Create</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link@(SmvActive("/receive"))"
+               asp-controller="SmvReceive" asp-action="Index" asp-route-storeId="@storeId">Receive</a>
+        </li>
+    }
+    <li class="nav-item">
+        <a class="nav-link@(SmvActive("/verify"))"
+           asp-controller="SmvVerify" asp-action="Index" asp-all-route-data="navRoute">Verify</a>
+    </li>
+    @if (hasStore)
+    {
+        <li class="nav-item">
+            <a class="nav-link@(SmvActive("/settings"))"
+               asp-controller="SmvSettings" asp-action="Index" asp-route-storeId="@storeId">Settings</a>
+        </li>
+    }
+    <li class="nav-item">
+        <a class="nav-link@(SmvActive("/about"))"
+           asp-controller="SmvAbout" asp-action="Index" asp-all-route-data="navRoute">About</a>
+    </li>
+</ul>
+
+@* Navigation loader: loader.js shows this overlay while a link/form navigation is in
+   flight, so slow tab/collection loads give feedback. Hidden by default. *@
+<div id="smv-loading-overlay"
+     style="display:none;position:fixed;inset:0;z-index:1080;background:rgba(0,0,0,.35);align-items:center;justify-content:center;">
+    <div class="spinner-border text-light" role="status" style="width:3rem;height:3rem;">
+        <span class="visually-hidden">Loading…</span>
+    </div>
+</div>
+<script src="~/plugins/smv/loader.js"></script>

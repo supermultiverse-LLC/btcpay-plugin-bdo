@@ -1,0 +1,101 @@
+@model BTCPayServer.Plugins.Smv.Services.Tapd.TapdAsset
+
+@{
+    var name = Model.Name ?? "Unknown";
+    var fullId = Model.AssetId ?? "";
+    var amount = Model.Amount ?? "-";
+    var infoId = ViewData["InfoId"] as string ?? "asset-info";
+}
+
+<tr class="collapse" id="@infoId">
+    <td colspan="4">
+        <div class="card card-body">
+            <h5 class="mb-3">Bitcoin Digital Object Information</h5>
+
+            @if (!string.IsNullOrWhiteSpace(Model.ImageUrl))
+            {
+                <div class="mb-3 text-center">
+                    <img src="@Model.ImageUrl" alt="@name" data-asset-thumb
+                         class="rounded" style="max-width:200px;width:100%;height:auto;" />
+                </div>
+            }
+
+            <dl class="row mb-0">
+                <dt class="col-sm-3">Name</dt>
+                <dd class="col-sm-9">
+                    <strong>@name</strong>
+                </dd>
+
+                <dt class="col-sm-3">BDO ID</dt>
+                <dd class="col-sm-9">
+                    <code class="text-break">@fullId</code>
+
+                    @if (!string.IsNullOrWhiteSpace(fullId))
+                    {
+                        <button type="button"
+                                class="btn btn-link btn-sm p-0 ms-2"
+                                data-copy-text="@fullId">
+                            Copy
+                        </button>
+                    }
+                </dd>
+
+                <dt class="col-sm-3">Amount</dt>
+                <dd class="col-sm-9">@amount</dd>
+
+                @* STAS-01 metadata decoded from the asset itself (BYON local enrichment,
+                   RFC-PLUGIN-006) — shown whenever the minted metadata carries it. *@
+                @if (!string.IsNullOrWhiteSpace(Model.Description))
+                {
+                    <dt class="col-sm-3">Description</dt>
+                    <dd class="col-sm-9">@Model.Description</dd>
+                }
+
+                @if (Model.Attributes is { Count: > 0 })
+                {
+                    <dt class="col-sm-3">Attributes</dt>
+                    <dd class="col-sm-9">
+                        @foreach (var attr in Model.Attributes)
+                        {
+                            <span class="badge bg-secondary me-1 mb-1">
+                                @attr.TraitType: <strong>@attr.Value</strong>
+                            </span>
+                        }
+                    </dd>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(Model.ExternalUrl))
+                {
+                    <dt class="col-sm-3">External link</dt>
+                    <dd class="col-sm-9">
+                        <a href="@Model.ExternalUrl" target="_blank" rel="noopener noreferrer">@Model.ExternalUrl ↗</a>
+                    </dd>
+                }
+
+                @* Image permanence: the image is pinned to IPFS (content-addressed), so it
+                   survives independently of any single server. Shown when the Public API
+                   enrichment carried an IPFS reference. *@
+                @if (!string.IsNullOrWhiteSpace(Model.ImageIpfsUrl) || !string.IsNullOrWhiteSpace(Model.ImageIpfsCid))
+                {
+                    <dt class="col-sm-3">Image permanence</dt>
+                    <dd class="col-sm-9">
+                        @if (!string.IsNullOrWhiteSpace(Model.ImageIpfsUrl))
+                        {
+                            <a href="@Model.ImageIpfsUrl" target="_blank" rel="noopener">Pinned on IPFS ↗</a>
+                        }
+                        else
+                        {
+                            <span>Pinned on IPFS</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Model.ImageIpfsCid))
+                        {
+                            <div class="small text-muted mt-1">
+                                CID: <code class="text-break">@Model.ImageIpfsCid</code>
+                            </div>
+                        }
+                    </dd>
+                }
+            </dl>
+        </div>
+    </td>
+</tr>

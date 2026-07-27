@@ -1,0 +1,48 @@
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "SMV — Browse Collection";
+    var error = TempData["SmvCollectionsError"] as string;
+}
+
+<section class="container my-4">
+    <h2 class="mb-3">Browse a BDO collection</h2>
+
+    <p class="text-muted">
+        Enter a collection slug (for example
+        <code>genesis-satoshis-goal</code>)
+        to browse all verifiable assets.
+    </p>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger" role="alert">
+            @error
+        </div>
+    }
+
+    <form method="post"
+          asp-controller="SmvCollections"
+          asp-action="Go"
+          autocomplete="off">
+
+        @Html.AntiForgeryToken()
+
+        <div class="row g-2">
+            <div class="col-md-8">
+                <input type="text"
+                       name="slug"
+                       class="form-control"
+                       placeholder="collection-slug"
+                       maxlength="81"
+                       required />
+            </div>
+
+            <div class="col-md-4">
+                <button type="submit"
+                        class="btn btn-primary w-100">
+                    Open Collection
+                </button>
+            </div>
+        </div>
+    </form>
+</section>

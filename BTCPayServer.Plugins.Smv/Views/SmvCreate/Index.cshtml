@@ -1,0 +1,409 @@
+@using System
+@using BTCPayServer.Plugins.Smv.Controllers
+@model SmvCreateVm
+@{
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+    var byon = Model.IsSelfCustody;
+}
+
+<h2>Create</h2>
+
+<partial name="_SmvPluginNav" />
+
+<partial name="_SmvCreateSubnav" />
+
+<p class="text-muted">
+    @if (byon)
+    {
+        <text>Mint a <strong>single unique</strong> Bitcoin Digital Object <strong>on your own node</strong>
+        (self-custody) — give it a name and image, <strong>sign it as its creator</strong>, and it's minted
+        on the node you connected, staying publicly verifiable with your signature on-chain. Want a whole
+        collection at once? Use <strong>Mint a series</strong> above.</text>
+    }
+    else
+    {
+        <text>Mint a <strong>single unique</strong> Bitcoin Digital Object into your hosted wallet — give
+        it a name and image, pay the one-off Lightning fee, and it appears in
+        <a asp-controller="SmvMyAssets" asp-action="Index" asp-route-storeId="@storeId">My BDOs</a>.
+        Want a whole collection at once? Use <strong>Mint a series</strong> above.</text>
+    }
+</p>
+
+@if (Model.AccountGate)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Activate your BDO account</h5>
+            <p class="card-text text-muted">
+                Your BDO account <strong>is</strong> your wallet — activate it in seconds with just an
+                email and password, right here in BTCPay, and start minting Bitcoin Digital Objects.
+                Already have one? Sign in with the same button.
+            </p>
+            <a class="btn btn-primary" href="@Url.Action("Index", "SmvSettings", new { storeId })">
+                Activate account
+            </a>
+        </div>
+    </div>
+}
+else if (Model.MintNotGranted)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Minting isn't included in your plan yet</h5>
+            <p class="card-text text-muted">
+                Creating BDOs requires the <strong>Silver plan</strong> or higher.
+                Subscribe right here in Settings — pay with any Lightning wallet and
+                minting unlocks immediately, no reconnect needed.
+            </p>
+            <a class="btn btn-primary" href="@Url.Action("Index", "SmvSettings", new { storeId })#plan-credits">
+                See plans
+            </a>
+        </div>
+    </div>
+}
+else
+{
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-danger">@Model.Error</div>
+}
+
+@* A validation / mint error re-renders the form (with the merchant's input and the
+   error banner above) — only a genuinely unconfigured Store hides it. *@
+@if (!Model.NotConfigured)
+{
+    @* At-a-glance commerce state — COMMON to both modes (it used to live inside
+       the hosted branch, so BYON never saw it). *@
+    @if (Model.PlanTier is not null || Model.CreditBalanceSats is not null)
+    {
+        var planLabel = Model.PlanTier switch
+        {
+            "silver_v2" => "Silver",
+            "tier_1" => "Gold",
+            "tier_2" => "Diamond",
+            null => "None",
+            _ => Model.PlanTier
+        };
+        <div class="alert alert-info">
+            Plan: <strong>@planLabel</strong>
+            <span class="text-muted mx-1">·</span>
+            Mint credits: <strong>@(Model.CreditBalanceSats?.ToString("N0") ?? "—")</strong>
+            <a class="ms-2" style="color:#212529;" asp-controller="SmvSettings" asp-action="Index"
+               asp-route-storeId="@(ViewContext.RouteData.Values["storeId"])"
+               asp-fragment="plan-credits">Manage</a>
+        </div>
+    }
+
+    @if (byon)
+    {
+        <div class="alert alert-secondary">
+            <strong>Self-custody.</strong> This BDO is minted on <strong>your own node</strong> — you hold
+            the keys, and your <strong>Creator Signature</strong> is embedded on-chain, proving you are the
+            original creator. Your node pays the on-chain fee; a small service fee applies for permanent
+            image hosting + public verifiability.
+            @if (!string.IsNullOrWhiteSpace(Model.ConnectionLabel))
+            {
+                <span class="d-block mt-1">Connected: <code>@Model.ConnectionLabel</code></span>
+            }
+        </div>
+
+        @* Registration expectations, BEFORE minting (journey fix "a"): the mint
+           is always free and sovereign; what varies is whether the platform
+           registration will follow. Never let the wall appear as a surprise. *@
+        @if (!Model.ByonAccountConnected)
+        {
+            <div class="alert alert-light border">
+                <strong>Optional:</strong> activate a BDO account in
+                <a href="@Url.Action("Index", "SmvSettings", new { storeId })">Settings</a> to register your
+                BDOs on the platform (public verification, permanent image hosting). Without it, your BDO
+                stays sovereign on your node only.
+            </div>
+        }
+        else if (Model.ByonCanRegister == false)
+        {
+            <div class="alert alert-warning">
+                <strong>Heads-up:</strong> you can mint now, but registering this BDO on the platform
+                requires the <strong>Gold plan</strong> (it signs with your own key) — until then it stays
+                sovereign on your node, queued for registration.
+                <a href="@Url.Action("Index", "SmvSettings", new { storeId })#plan-credits">See plans</a>.
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-light border">
+                After the Bitcoin anchor confirms, this BDO is <strong>registered on the platform
+                automatically</strong> — public verification, permanent image hosting, and your creator
+                signature served to anyone who checks.
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-secondary">
+            <strong>Where does it go?</strong> A BDO you create is minted into your
+            <strong>hosted (custodial)</strong> wallet — Supermultiverse holds the keys. You own it,
+            and you can move it out any time with <strong>Send</strong> from My BDOs.
+            @if (!string.IsNullOrWhiteSpace(Model.ConnectionLabel))
+            {
+                <span class="d-block mt-1">Connected: <code>@Model.ConnectionLabel</code></span>
+            }
+        </div>
+
+        @* ── Cost preview (server-rendered; collectibles are dimension-fixed) ─────── *@
+        @if (Model.Quote is not null)
+        {
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Estimated cost</h5>
+                    <div class="display-6">@Model.Quote.TotalSats <span class="fs-6 text-muted">credits</span></div>
+                    <div class="small text-muted mt-1">
+                        On-chain fee @Model.Quote.OnchainFeeSats (paid to Bitcoin miners) + platform @Model.Quote.PlatformMarginSats
+                        @if (!string.IsNullOrWhiteSpace(Model.Quote.Network))
+                        {
+                            <span>· @Model.Quote.Network</span>
+                        }
+                    </div>
+                    <div class="small text-muted">Estimate only — the exact fee is set when you confirm.</div>
+                </div>
+            </div>
+        }
+        else if (Model.QuoteUnavailable)
+        {
+            <div class="alert alert-warning">
+                The cost estimate is unavailable right now. You can still fill in the form; the exact
+                Lightning fee is shown before you pay.
+            </div>
+        }
+    }
+
+    @* ── The minted result. Hosted: pay the LN fee invoice. BYON: no invoice — the
+       node already minted; create.js polls the status to completion either way. *@
+    @if (Model.Result is not null)
+    {
+        <div class="card border-warning mb-4" data-smv-mint-panel data-mint-ref="@Model.Result.MintRef">
+            <div class="card-body">
+                @if (Model.Result.Invoice is { Bolt11: not null } invoice)
+                {
+                    <h4 class="card-title">Pay the Lightning fee to mint your BDO</h4>
+
+                    @* Invoice block — hidden by create.js once the fee is paid. *@
+                    <div data-mint-invoice>
+                        <p class="text-muted mb-2">
+                            Scan or pay this Lightning invoice. Minting starts automatically once the
+                            payment settles — this page updates on its own.
+                        </p>
+
+                        <div>
+                            <span class="badge bg-secondary">@invoice.AmountSats sats</span>
+                            @if (!string.IsNullOrWhiteSpace(invoice.ExpiresAt))
+                            {
+                                <span class="badge bg-secondary ms-1">Expires @invoice.ExpiresAt</span>
+                            }
+                        </div>
+
+                        <div class="text-center my-3">
+                            <img src="@($"/plugins/smv/qr?data={Uri.EscapeDataString(invoice.Bolt11!)}")"
+                                 alt="Lightning invoice QR"
+                                 class="bg-white p-2 rounded"
+                                 style="max-width: 240px; width: 100%; height: auto; image-rendering: pixelated;" />
+                        </div>
+
+                        <label class="form-label small mb-1">Lightning invoice</label>
+                        <textarea class="form-control font-monospace small" rows="4" readonly data-mint-invoice-value>@invoice.Bolt11</textarea>
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-2"
+                                data-copy-invoice="@invoice.Bolt11">Copy invoice</button>
+                    </div>
+                }
+                else if (Model.Result.CreditsCharged is not null)
+                {
+                    @* Credits-first (§13 amendment): the fee was charged to the
+                       merchant's credit balance — no invoice, mint already started. *@
+                    <h4 class="card-title">Minting your BDO…</h4>
+                    <div class="alert alert-success py-2">
+                        Paid with <strong>@Model.Result.CreditsCharged?.ToString("N0") credits</strong>
+                        <span class="text-muted">— balance: @Model.Result.CreditsBalanceAfter?.ToString("N0")</span>
+                    </div>
+                    <p class="text-muted mb-2">
+                        No Lightning payment needed. This page updates on its own.
+                    </p>
+                }
+                else
+                {
+                    @* BYON: minted on the merchant's own node — no invoice. *@
+                    <h4 class="card-title">Minting your BDO on your node…</h4>
+                    <p class="text-muted mb-2">
+                        Your node is minting and anchoring the asset on-chain. This page updates on its own.
+                    </p>
+                }
+
+                @* BYON registration outcome (RFC-PLUGIN-006 P2-2c) — set server-side after a
+                   signed self-custody mint (registered / pending / error). *@
+                @if (byon && !string.IsNullOrWhiteSpace(Model.RegistrationNote))
+                {
+                    <div class="alert alert-secondary mb-0 mt-2">
+                        <strong>Platform registration:</strong> @Model.RegistrationNote
+                    </div>
+                }
+
+                @* B4: pending registration completes automatically (the status poll below and
+                   My BDOs loads drive it) — no merchant action, nothing to render here. *@
+
+                @* Progress — shown by create.js while minting. *@
+                <div class="alert alert-info d-none mb-0" data-mint-status>
+                    <strong data-mint-status-title>Minting your BDO…</strong>
+                    <div class="small mt-1" data-mint-status-message></div>
+                </div>
+
+                @* Success — shown by create.js on `minted`. Leads to My BDOs; we deliberately
+                   don't push Verify here because the public proof registers a moment later,
+                   so an immediate Verify would race and fail. *@
+                <div class="alert alert-success d-none mb-0" data-mint-success>
+                    <strong>Your BDO has been minted ✓</strong>
+                    <div class="small mt-1" data-mint-success-message></div>
+                    <div class="small mt-2">BDO ID: <code class="text-break" data-mint-success-bdoid>—</code></div>
+                    <div class="mt-3">
+                        <a class="btn btn-light btn-sm"
+                           asp-controller="SmvMyAssets" asp-action="Index" asp-route-storeId="@storeId">View in My BDOs</a>
+                    </div>
+                </div>
+
+                @* Refund-as-credit — shown by create.js on `refunded_credit`. *@
+                <div class="alert alert-warning d-none mb-0" data-mint-refund>
+                    <strong>Minting couldn't complete — you were refunded as credit</strong>
+                    <div class="small mt-1" data-mint-refund-message></div>
+                </div>
+
+                @* Error — shown by create.js on `failed`. *@
+                <div class="alert alert-danger d-none mb-0" data-mint-error>
+                    <strong>Minting failed.</strong>
+                    <div class="small mt-1" data-mint-error-message></div>
+                </div>
+            </div>
+        </div>
+
+        @* Store-scoped endpoints + link templates for create.js. The script reads
+           these; it never builds Store URLs itself. __REF__/__ID__ are substituted
+           client-side. *@
+        <div data-smv-mint
+             data-mint-status-endpoint="@Url.Action("Status", "SmvCreate", new { storeId, mintRef = "__REF__" })"
+             data-verify-url="@Url.Action("Lookup", "SmvVerify", new { id = "__ID__" })">
+        </div>
+
+    }
+
+    @* ── The create form — hidden once a mint panel is on screen, so the merchant
+       isn't tempted to resubmit while a mint is in flight. *@
+    @if (Model.Result is null)
+    {
+    <form method="post" asp-controller="SmvCreate" asp-action="Create" asp-route-storeId="@storeId" class="mb-4"
+          data-byon-create-form data-prepare-endpoint="@Url.Action("Prepare", "SmvCreate", new { storeId })">
+        @Html.AntiForgeryToken()
+        @if (byon)
+        {
+            @* byon-create.js fills this with the creator's Nostr signature before submit. *@
+            <input type="hidden" name="SignedEventJson" data-byon-signed-event value="" />
+        }
+
+        <div class="form-group mb-3">
+            <label for="AssetName">Name</label>
+            <input id="AssetName" name="AssetName" class="form-control" value="@Model.AssetName"
+                   placeholder="e.g. Bitconia Access Pass #001" />
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="ImageUrl">Image <span class="text-danger">*</span></label>
+            @if (Model.CanUploadImage)
+            {
+                <input id="ImageUploadFile" type="file" class="form-control mb-2"
+                       accept="image/png,image/jpeg,image/webp"
+                       data-upload-endpoint="@Url.Action("UploadImage", "SmvCreate", new { storeId })" />
+                <small id="ImageUploadStatus" class="form-text text-muted">
+                    Upload from your device (PNG/JPEG/WebP, max 10 MB) — it's hosted for you at a permanent URL.
+                </small>
+            }
+            else
+            {
+                @* Gate at the door: uploading stores the bytes on the platform, so it
+                   needs a connected account (the one Create feature in BYON that does).
+                   URL paste below stays fully functional without one. *@
+                <input type="file" class="form-control mb-2" disabled
+                       title="Activate your BDO account to upload from your device" />
+                <small class="form-text text-muted">
+                    <a href="@Url.Action("Index", "SmvSettings", new { storeId })">Activate your BDO account</a>
+                    to upload from your device — or paste a public image URL below.
+                </small>
+            }
+            <input id="ImageUrl" name="ImageUrl" type="url" required class="form-control mt-2" value="@Model.ImageUrl"
+                   placeholder="https://… (or paste a public image link)" />
+            <small class="form-text text-muted">Or paste a public https link — we fetch and re-host it so it's permanent.</small>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="Description">Description <span class="text-muted">(optional)</span></label>
+            <textarea id="Description" name="Description" class="form-control" rows="3">@Model.Description</textarea>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="AttributesText">Attributes <span class="text-muted">(optional)</span></label>
+            <textarea id="AttributesText" name="AttributesText" class="form-control" rows="3"
+                      placeholder="tier: gold&#10;edition: first">@Model.AttributesText</textarea>
+            <small class="form-text text-muted">One per line, as <code>trait: value</code>.</small>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="ExternalReference">External reference <span class="text-muted">(optional)</span></label>
+            <input id="ExternalReference" name="ExternalReference" class="form-control" value="@Model.ExternalReference"
+                   placeholder="https://your-site.com/item/001" />
+        </div>
+
+        @if (byon)
+        {
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="ByonSign" data-byon-sign-toggle checked />
+                <label class="form-check-label" for="ByonSign">
+                    <strong>Sign as the creator</strong> (optional) — with your Nostr key (Alby / nos2x). Embeds
+                    your Creator Signature on-chain, proving authorship. If ticked, a signing prompt appears
+                    after you click <strong>Create BDO</strong>; untick to create without a signature.
+                </label>
+            </div>
+        }
+
+        @* Hosted credits-first charges the instant this is clicked (no invoice step
+           to double-check on) — the price and breakdown must live on the button. *@
+        <button type="submit" class="btn btn-primary" data-byon-create-btn>
+            @(byon
+                ? "Create BDO"
+                : Model.Quote is not null
+                    ? $"Mint BDO — pay ~{Model.Quote.TotalSats} credits"
+                    : "Continue to payment")
+        </button>
+        @if (!byon && Model.Quote is not null)
+        {
+            <div class="small text-muted mt-2">
+                ~@Model.Quote.TotalSats credits = @Model.Quote.OnchainFeeSats on-chain (paid to Bitcoin miners)
+                + @Model.Quote.PlatformMarginSats platform.<br />
+                If your credit balance covers it, it is <strong>charged immediately</strong> when you
+                click — no invoice step. Otherwise a Lightning invoice shows the exact amount first.
+                Nothing is ever charged twice.
+            </div>
+        }
+        @if (byon)
+        {
+            <div class="small mt-2 text-muted" data-byon-status></div>
+        }
+    </form>
+    }
+
+    @* Loaded whenever the Store is configured — drives the invoice/status polling
+       when a mint is in flight. *@
+    <script src="~/plugins/smv/create.js"></script>
+    <script src="~/plugins/smv/upload-image.js"></script>
+    @if (byon)
+    {
+        @* Intercepts the create form: Prepare → Creator Signature (Nostr) → submit. *@
+        <script src="~/plugins/smv/byon-create.js"></script>
+    }
+}
+
+}

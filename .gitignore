@@ -1,0 +1,38 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Build output
+build/out/
+*.btcpay
+*.btcpay.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Local config
+appsettings.Local.json
+appsettings.dev.json
+
+# Sensitive material — NEVER commit
+# Taproot Assets proofs may contain unpublished asset data
+*.proof
+# LND / tapd macaroons grant node access
+*.macaroon
+# TLS certs (lnd/tapd) — local only
+*.cert
+tls.cert
+admin.macaroon
+
+# Local BTCPay reference assemblies
+lib/
+
+tapd-transfer-debug.json

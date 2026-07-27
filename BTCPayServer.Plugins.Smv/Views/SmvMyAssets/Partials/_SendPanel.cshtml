@@ -1,0 +1,133 @@
+@model BTCPayServer.Plugins.Smv.Services.Tapd.TapdAsset
+
+@{
+    var name = Model.Name ?? "Unknown";
+    var type = Model.Type ?? "-";
+    var amount = Model.Amount ?? "-";
+    var sendId = ViewData["SendId"] as string ?? "asset-send";
+    var reviewId = sendId.Replace("asset-send", "asset-review");
+}
+
+<tr class="collapse" id="@sendId">
+    <td colspan="4">
+        <div class="card card-body border-primary"
+             data-send-form
+             data-send-asset-id="@Model.AssetId"
+             data-send-asset-name="@name"
+             data-send-asset-type="@type">
+            <h5 class="mb-3">Send BDO</h5>
+
+            <div class="mb-3">
+                <label class="form-label">Bitcoin Digital Object</label>
+                <div>
+                    <strong data-send-asset-name>@name</strong>
+                    <span class="text-muted ms-2">Available: @amount</span>
+                </div>
+            </div>
+
+            @if (ViewData["IsCustodial"] is true)
+            {
+                @* G2 — send to a CUSTOMER: a claim link instead of a taproot
+                   address. The transfer is an atomic accounting move at
+                   redemption; self-custody stays available to the recipient
+                   via the standard withdrawal. *@
+                <div class="border rounded p-3 mb-3" data-claim-section
+                     data-url-create="@Url.Action("Create", "SmvClaim", new { storeId = ViewContext.RouteData.Values["storeId"] })"
+                     data-url-cancel="@Url.Action("Cancel", "SmvClaim", new { storeId = ViewContext.RouteData.Values["storeId"] })"
+                     data-url-list="@Url.Action("List", "SmvClaim", new { storeId = ViewContext.RouteData.Values["storeId"] })">
+                    <label class="form-label mb-1"><strong>Send to a customer</strong> <span class="text-muted">— no wallet needed</span></label>
+                    <p class="small text-muted mb-2">
+                        Get a claim link: your customer opens it, creates a free account with just an
+                        email, and this BDO is theirs. They can withdraw it to their own node any time.
+                    </p>
+                    <button type="button" class="btn btn-outline-primary btn-sm" data-claim-create>
+                        Create claim link
+                    </button>
+                    <div class="d-none mt-2" data-claim-result>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control font-monospace" readonly data-claim-url />
+                            <button type="button" class="btn btn-outline-secondary" data-claim-copy>Copy link</button>
+                        </div>
+                        @* The bare code, copyable on its own — for channels where a link
+                           doesn't fit (phone, paper, another merchant's Receive tab). *@
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control font-monospace" readonly data-claim-code-display />
+                            <button type="button" class="btn btn-outline-secondary" data-claim-code-copy>Copy code</button>
+                        </div>
+                        <div class="text-center mb-2" data-claim-qr-wrap>
+                            <img data-claim-qr alt="Claim link QR" class="img-fluid rounded bg-white p-2" style="max-width: 180px;" />
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="small text-muted" data-claim-state>Waiting to be claimed — the BDO leaves your wallet when your customer redeems it.</span>
+                            <button type="button" class="btn btn-link btn-sm text-danger p-0" data-claim-cancel>Cancel link</button>
+                        </div>
+                    </div>
+                    <p class="text-danger small d-none mt-2" data-claim-error></p>
+                </div>
+
+                <div class="text-muted small mb-2">Or send to a Taproot Assets address:</div>
+            }
+
+            <div class="mb-3">
+                <label class="form-label">Recipient Address</label>
+                <input type="text"
+                       class="form-control"
+                       placeholder="tapbc1..."
+                       data-send-address />
+                <div class="invalid-feedback d-none" data-send-address-error>
+                    Invalid BDO address. Must be a Taproot Asset address (tapbc1 / taptb1 / taprt1).
+                </div>
+                <div class="form-text">
+                    Paste a valid Bitcoin Digital Object address.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Amount</label>
+                @if (type.Equals("COLLECTIBLE", StringComparison.OrdinalIgnoreCase))
+                {
+                    <input type="number"
+                           class="form-control"
+                           value="1"
+                           min="1"
+                           max="1"
+                           disabled
+                           data-send-amount />
+                    <div class="form-text">
+                        This collectible is indivisible.
+                    </div>
+                }
+                else
+                {
+                    <input type="number"
+                           class="form-control"
+                           value="@amount"
+                           min="1"
+                           data-send-amount />
+                }
+            </div>
+
+            <input type="hidden" value="@type" data-send-asset-type />
+            <input type="hidden" value="#@reviewId" data-send-review-target />
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button"
+                        class="btn btn-secondary btn-sm"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#@sendId">
+                    Cancel
+                </button>
+
+                <button type="button"
+                        class="btn btn-primary btn-sm"
+                        data-send-review
+                        disabled>
+                    Review
+                </button>
+            </div>
+        </div>
+    </td>
+</tr>
+
+<partial name="Partials/_ReviewPanel"
+         view-data='new ViewDataDictionary(ViewData) { { "ReviewId", reviewId } }' />

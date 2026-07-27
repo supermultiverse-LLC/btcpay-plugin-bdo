@@ -1,0 +1,473 @@
+@using System
+@using System.Linq
+@using BTCPayServer.Plugins.Smv.Core
+@model BTCPayServer.Plugins.Smv.Settings.SmvStoreSettingsViewModel
+
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "Bitcoin Digital Objects Settings";
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+}
+
+@functions {
+    static string CapabilityLabel(string scope) => scope switch
+    {
+        "assets:read" => "Read assets",
+        "assets:mint" => "Mint assets",
+        "assets:receive" => "Receive assets",
+        "assets:send" => "Send assets",
+        "assets:register_external" => "Register external assets",
+        _ => scope
+    };
+}
+
+<div class="row">
+    <div class="col-md-8">
+
+        <h2 class="mb-3">@ViewData["Title"]</h2>
+
+        <partial name="_SmvPluginNav" />
+
+        <p class="text-muted">
+            Choose how this Store holds its Bitcoin Digital Objects. Credentials are stored
+            encrypted and are never shown back — leave a credential field blank to keep the
+            current value.
+        </p>
+
+        @if (TempData["StatusMessage"] is string status)
+        {
+            <div class="alert alert-success">
+                @status
+            </div>
+        }
+
+        @* ── Supermultiverse account (OAuth Connect, RFC-PLUGIN-007) ─────────────
+           Its own form (Disconnect posts here), kept OUTSIDE the settings form below
+           so the two never nest. Connect is a plain link that starts the OAuth flow. *@
+        <div class="card mb-4" data-smv-oauth-card>
+            <div class="card-body">
+                @* Brand reframe (2026-07-26): the account is presented as the BDO
+                   account — the service the merchant is already using — never as a
+                   login to a third-party platform they've never heard of. The
+                   operator (Supermultiverse) stays named where honesty requires it:
+                   the ToS line, custody statements, and About. *@
+                <h4 class="card-title">BDO account</h4>
+                @if (Model.OAuthConnected)
+                {
+                    @* Mode changed since connecting → the token's capabilities are for the
+                       old mode. Prompt a reconnect (§11.8 R4 — capabilities are per-mode). *@
+                    @if (Model.OAuthModeMismatch)
+                    {
+                        <div class="alert alert-warning">
+                            <strong>Reconnect needed.</strong> You changed the backend since connecting, so this
+                            connection's permissions are for the previous mode
+                            (@(Model.BackendMode == SmvBackendMode.Hosted ? "it can't mint" : "it can't register")).
+                            Reconnect to update what it can do.
+                            <div class="mt-2">
+                                @* btn-dark: a warning-colored button on a warning-colored
+                                   alert was invisible (Toni, 2026-07-27). *@
+                                <a class="btn btn-dark btn-sm" data-smv-oauth-popup asp-controller="SmvOAuth" asp-action="Connect" asp-route-storeId="@storeId">Reconnect</a>
+                            </div>
+                        </div>
+                    }
+                    <p class="mb-2">
+                        @* The badge must never say "Connected" while the connection needs
+                           attention: mode mismatch renders it as a warning here, and
+                           subscription.js flips it on a 401 (dead connection). *@
+                        @if (Model.OAuthModeMismatch)
+                        {
+                            <span class="badge bg-warning text-dark" data-account-badge>Reconnect needed</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success" data-account-badge>Connected</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Model.OAuthConnectedAccount))
+                        {
+                            <span class="ms-1">as <strong>@Model.OAuthConnectedAccount</strong></span>
+                        }
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(Model.OAuthScopes))
+                    {
+                        var granted = Model.OAuthScopes
+                            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Select(CapabilityLabel);
+                        <p class="small text-muted mb-2">Granted: @string.Join(", ", granted)</p>
+                    }
+                    @* At-a-glance commerce state (no scrolling): filled by
+                       subscription.js / topup.js from the same fetches that
+                       power the Plan & credits card — zero extra API calls. *@
+                    <p class="small mb-2">
+                        Plan: <strong data-account-plan>—</strong>
+                        <span class="text-muted mx-1">·</span>
+                        Credits: <strong data-account-credits>—</strong>
+                        <a class="ms-2 small" href="#plan-credits">Manage</a>
+                    </p>
+                    <form method="post" asp-controller="SmvOAuth" asp-action="Disconnect" asp-route-storeId="@storeId">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Disconnect</button>
+                    </form>
+                }
+                else
+                {
+                    @* Embedded identity (RFC-PLUGIN-008): native sign-in / sign-up. The
+                       merchant never leaves BTCPay; SSO stays as a secondary path below. *@
+                    <p class="text-muted mb-3">
+                        Your BDO account is what this Store uses to
+                        @(Model.BackendMode == SmvBackendMode.Hosted ? "mint, hold and send" : "register") its Bitcoin
+                        Digital Objects. Create it in seconds — you never leave BTCPay — or sign in
+                        if you already have one. Your plan decides which capabilities are granted.
+                    </p>
+
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#smv-email-pane" type="button" role="tab">Email code</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#smv-signin-pane" type="button" role="tab">Password</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#smv-signup-pane" type="button" role="tab">Create with password</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" style="max-width: 26rem;">
+                        @* ── Email-first activation (RFC-008 amendment): one field, no password.
+                           Step 1 emails a 6-digit code; step 2 verifies it. Works for NEW and
+                           EXISTING accounts alike — new emails are provisioned automatically. *@
+                        <div class="tab-pane fade show active" id="smv-email-pane" role="tabpanel">
+                            @if (TempData["SmvOtpEmail"] is string otpEmail && !string.IsNullOrWhiteSpace(otpEmail))
+                            {
+                                <form method="post" asp-controller="SmvAccount" asp-action="VerifyEmailCode" asp-route-storeId="@storeId">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="email" value="@otpEmail" />
+                                    <p class="small text-muted mb-2">
+                                        We emailed a 6-digit code to <strong>@otpEmail</strong>.
+                                    </p>
+                                    <div class="form-group mb-3">
+                                        <label class="form-label" for="smv-otp-code">Code</label>
+                                        <input id="smv-otp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+                                               pattern="[0-9]*" maxlength="10" class="form-control font-monospace" required autofocus />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Activate</button>
+                                </form>
+                                <form method="post" asp-controller="SmvAccount" asp-action="RequestEmailCode" asp-route-storeId="@storeId" class="mt-2">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="email" value="@otpEmail" />
+                                    <input type="hidden" name="tosAccepted" value="true" />
+                                    <button type="submit" class="btn btn-link btn-sm p-0">Send a new code</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <form method="post" asp-controller="SmvAccount" asp-action="RequestEmailCode" asp-route-storeId="@storeId">
+                                    @Html.AntiForgeryToken()
+                                    <div class="form-group mb-2">
+                                        <label class="form-label" for="smv-otp-email">Email</label>
+                                        <input id="smv-otp-email" name="email" type="email" class="form-control" required autocomplete="username" />
+                                        <small class="form-text text-muted">
+                                            We'll email you a 6-digit code — no password needed. New here? Your
+                                            account is created automatically.
+                                        </small>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="smv-otp-tos" name="tosAccepted" value="true" required />
+                                        <label class="form-check-label small" for="smv-otp-tos">
+                                            I accept the <a href="https://app.supermultiverse.io/legal" target="_blank" rel="noopener">Terms of Service</a>
+                                            <span class="text-muted">(powered by Supermultiverse)</span>
+                                        </label>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Send code</button>
+                                </form>
+                            }
+                        </div>
+                        <div class="tab-pane fade" id="smv-signin-pane" role="tabpanel">
+                            <form method="post" asp-controller="SmvAccount" asp-action="SignIn" asp-route-storeId="@storeId">
+                                @Html.AntiForgeryToken()
+                                <div class="form-group mb-2">
+                                    <label class="form-label" for="smv-signin-email">Email</label>
+                                    <input id="smv-signin-email" name="email" type="email" class="form-control" required autocomplete="username" />
+                                </div>
+                                <div class="form-group mb-3">
+                                    <label class="form-label" for="smv-signin-password">Password</label>
+                                    <input id="smv-signin-password" name="password" type="password" class="form-control" required autocomplete="current-password" />
+                                </div>
+                                <button type="submit" class="btn btn-primary">Sign in</button>
+                            </form>
+                        </div>
+                        <div class="tab-pane fade" id="smv-signup-pane" role="tabpanel">
+                            <form method="post" asp-controller="SmvAccount" asp-action="SignUp" asp-route-storeId="@storeId">
+                                @Html.AntiForgeryToken()
+                                <div class="form-group mb-2">
+                                    <label class="form-label" for="smv-signup-email">Email</label>
+                                    <input id="smv-signup-email" name="email" type="email" class="form-control" required autocomplete="username" />
+                                </div>
+                                <div class="form-group mb-2">
+                                    <label class="form-label" for="smv-signup-password">Password</label>
+                                    <input id="smv-signup-password" name="password" type="password" class="form-control" required minlength="8" autocomplete="new-password" />
+                                    <small class="form-text text-muted">At least 8 characters.</small>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="smv-signup-tos" name="tosAccepted" value="true" required />
+                                    <label class="form-check-label small" for="smv-signup-tos">
+                                        I accept the <a href="https://app.supermultiverse.io/legal" target="_blank" rel="noopener">Terms of Service</a>
+                                        <span class="text-muted">(powered by Supermultiverse)</span>
+                                    </label>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Create account</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <p class="small text-muted mt-3 mb-0">
+                        Already use the Supermultiverse app? Your account works here too —
+                        <a data-smv-oauth-popup asp-controller="SmvOAuth" asp-action="Connect" asp-route-storeId="@storeId">connect it</a>
+                        without typing your password here.
+                    </p>
+                }
+            </div>
+        </div>
+
+        @* Opens Connect/Reconnect in a popup so the merchant stays anchored to BTCPay
+           (the login itself still happens on supermultiverse.io — OAuth by design). *@
+        <script src="~/plugins/smv/oauth-popup.js"></script>
+
+        <form method="post" asp-controller="SmvSettings" asp-action="Index" asp-route-storeId="@storeId">
+            @Html.AntiForgeryToken()
+
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+            <div class="form-group mb-4">
+                <label asp-for="BackendMode" class="form-label">Backend</label>
+                <select asp-for="BackendMode" class="form-select" data-smv-backend-select>
+                    <option value="Byon">Self-custody — bring your own node (BYON)</option>
+                    <option value="Hosted">Hosted by Supermultiverse — custodial</option>
+                </select>
+                <small class="form-text text-muted">
+                    Changing the backend and saving switches which one this Store uses. The other
+                    backend's settings are preserved, so you can switch back without re-entering them.
+                </small>
+            </div>
+
+            @* Both sections are always rendered; settings-backend.js shows the one matching
+               the dropdown so the form previews instantly (you still Save to apply the mode).
+               The POST only consumes the active mode's fields and preserves the other's. *@
+            <div data-smv-backend-section="Hosted">
+                <h4 class="mb-3">Hosted Wallet</h4>
+
+                <div class="alert alert-info">
+                    <strong>This is a custodial wallet.</strong> In Hosted mode Supermultiverse holds
+                    the keys. You keep ownership of your objects and can move them out at any time with
+                    Send (your exit path). This is <em>not</em> self-custody — for full sovereignty use
+                    the Self-custody (BYON) backend.
+                </div>
+
+                <details class="mb-4">
+                    <summary class="mb-2">Advanced: paste a token manually</summary>
+                    <div class="form-group">
+                        <label asp-for="HostedApiToken" class="form-label">Managed Wallet API Token</label>
+                        @if (Model.HostedApiTokenConfigured)
+                        {
+                            <div class="mb-1"><span class="badge bg-success">Configured</span></div>
+                        }
+                        else
+                        {
+                            <div class="mb-1"><span class="badge bg-secondary">Not configured</span></div>
+                        }
+                        <input asp-for="HostedApiToken" type="password" class="form-control" autocomplete="new-password"
+                               placeholder="@(Model.HostedApiTokenConfigured ? "Leave blank to keep the current token" : "mwv1_…")" />
+                        <small class="form-text text-muted">
+                            Prefer the <strong>BDO account</strong> card above — it manages this token for you.
+                            This manual <code>mwv1_</code> field is for advanced/legacy setups. Stored encrypted; never shown back.
+                        </small>
+                        <button type="submit" class="btn btn-primary btn-sm mt-2">Save token</button>
+                    </div>
+                </details>
+            </div>
+
+            <div data-smv-backend-section="Byon">
+                <h4 class="mb-3">BDO Infrastructure</h4>
+
+                <div class="form-group mb-3">
+                    <label asp-for="TapdBaseUrl" class="form-label">Taproot Assets Endpoint</label>
+                    <input asp-for="TapdBaseUrl" class="form-control" placeholder="https://tapd.example.com:8089" />
+                    <small class="form-text text-muted">
+                        The address of your BDO infrastructure. Leave empty to keep this Store unconfigured.
+                    </small>
+                    <span asp-validation-for="TapdBaseUrl" class="text-danger"></span>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="TapdMacaroonHex" class="form-label">Authentication Macaroon</label>
+                    @if (Model.TapdMacaroonConfigured)
+                    {
+                        <div class="mb-1"><span class="badge bg-success">Configured</span></div>
+                    }
+                    else
+                    {
+                        <div class="mb-1"><span class="badge bg-secondary">Not configured</span></div>
+                    }
+                    <textarea asp-for="TapdMacaroonHex" class="form-control" rows="4"
+                              placeholder="@(Model.TapdMacaroonConfigured ? "Leave blank to keep the current macaroon" : "Read-only macaroon hex")"></textarea>
+                    <small class="form-text text-muted">
+                        Must be a minimal read-only macaroon. Stored encrypted; never shown back.
+                    </small>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="TapdTlsCert" class="form-label">TLS Certificate (optional)</label>
+                    <textarea asp-for="TapdTlsCert" class="form-control" rows="5" placeholder="Optional PEM certificate"></textarea>
+                    <small class="form-text text-muted">
+                        Optional. Only needed when your BDO infrastructure uses a self-signed certificate.
+                    </small>
+                </div>
+
+                <div class="form-group mb-4">
+                    <label asp-for="TapdHttpTimeoutMs" class="form-label">HTTP Timeout (ms)</label>
+                    <input asp-for="TapdHttpTimeoutMs" type="number" class="form-control" />
+                    <small class="form-text text-muted">Per-request timeout for calls to your BDO infrastructure. Default: 8000 ms.</small>
+                </div>
+
+                <hr class="my-4" />
+
+                <h4 class="mb-3">Bitcoin Core RPC (optional)</h4>
+                <p class="text-muted">
+                    Optional. Used only to report on-chain confirmation counts for a broadcast transfer.
+                    When not configured, transfers are reported as broadcast/pending.
+                </p>
+
+                <div class="form-group mb-3">
+                    <label asp-for="BitcoinRpcUrl" class="form-label">RPC URL</label>
+                    <input asp-for="BitcoinRpcUrl" class="form-control" placeholder="http://127.0.0.1:8332" />
+                </div>
+
+                <div class="form-group mb-3">
+                    <label asp-for="BitcoinRpcUser" class="form-label">RPC Username</label>
+                    <input asp-for="BitcoinRpcUser" class="form-control" />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label asp-for="BitcoinRpcPassword" class="form-label">RPC Password</label>
+                    @if (Model.BitcoinRpcPasswordConfigured)
+                    {
+                        <div class="mb-1"><span class="badge bg-success">Configured</span></div>
+                    }
+                    else
+                    {
+                        <div class="mb-1"><span class="badge bg-secondary">Not configured</span></div>
+                    }
+                    <input asp-for="BitcoinRpcPassword" type="password" class="form-control" autocomplete="new-password"
+                           placeholder="@(Model.BitcoinRpcPasswordConfigured ? "Leave blank to keep the current password" : "")" />
+                    <small class="form-text text-muted">Stored encrypted; never shown back.</small>
+                </div>
+
+                @* Save lives INSIDE the BYON section: credential edits need an
+                   explicit action. Hosted has nothing else to save — switching
+                   the backend selector auto-submits (settings-backend.js), and
+                   the manual-token field carries its own Save inside Advanced. *@
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+
+        <script src="~/plugins/smv/settings-backend.js"></script>
+
+        @* ── Plan & credits (approved IA: account → backend → THEN commerce) ──
+           One card, two dependent sections. The PLAN is the product (it
+           unlocks minting and includes an annual credit grant); CREDITS are
+           the consumable and stay disabled until a plan is active — without a
+           plan there is nothing credits can pay for. Tier copy amounts come
+           from the backend so they can never drift from the settle RPC. *@
+        @if (Model.OAuthConnected)
+        {
+            <div class="card mb-4 mt-4" id="plan-credits"
+                 data-smv-plan-mode="@(Model.BackendMode == BTCPayServer.Plugins.Smv.Core.SmvBackendMode.Hosted ? "hosted" : "byon")">
+                <div class="card-body">
+                    <h4 class="card-title">Plan &amp; credits</h4>
+
+                    @* Section 1 — the plan (door) *@
+                    <div data-smv-sub
+                         data-url-info="@Url.Action("Info", "SmvSubscription", new { storeId })"
+                         data-url-create="@Url.Action("Create", "SmvSubscription", new { storeId })"
+                         data-url-status="@Url.Action("Status", "SmvSubscription", new { storeId })?x=1">
+                        @Html.AntiForgeryToken()
+                        <p class="text-muted" data-sub-loading>Loading plans…</p>
+                        <p class="text-muted d-none" data-sub-unavailable></p>
+
+                        <div class="d-none" data-sub-body>
+                            <p class="mb-2 d-none" data-sub-current-wrap>
+                                <span class="badge bg-success" data-sub-current></span>
+                            </p>
+                            @* With an active plan, the intro line gives way to THIS: what the
+                               contracted plan actually includes (benefit + credits + per-BDO fee). *@
+                            <p class="small d-none mb-2" data-sub-current-desc></p>
+                            <p class="small text-muted mb-2" data-sub-intro></p>
+                            <div data-sub-tiers class="mb-2"></div>
+
+                            <div class="d-none border rounded p-3 mt-2" style="max-width: 26rem;" data-sub-invoice>
+                                <p class="mb-2" data-sub-pay-line>Pay <strong data-sub-amount></strong> with any Lightning wallet:</p>
+                                <div data-sub-qr-wrap class="text-center mb-2">
+                                    <img data-sub-qr alt="Lightning invoice QR" class="img-fluid rounded bg-white p-2"
+                                         style="max-width: 220px;" />
+                                </div>
+                                <div class="input-group input-group-sm mb-2" data-sub-bolt11-row>
+                                    <input type="text" class="form-control font-monospace" readonly data-sub-bolt11 />
+                                    <button type="button" class="btn btn-outline-secondary" data-sub-copy>Copy invoice</button>
+                                </div>
+                                <p class="small text-muted mb-0" data-sub-state></p>
+                            </div>
+
+                            <p class="text-danger small d-none mt-2" data-sub-error></p>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    @* Section 2 — credits (fuel; gated until a plan exists) *@
+                    <div data-smv-topup
+                         data-url-info="@Url.Action("Info", "SmvTopup", new { storeId })"
+                         data-url-create="@Url.Action("Create", "SmvTopup", new { storeId })"
+                         data-url-status="@Url.Action("Status", "SmvTopup", new { storeId })?x=1">
+                        @Html.AntiForgeryToken()
+                        <h6>Mint credits</h6>
+                        <p class="text-muted" data-topup-loading>Loading balance…</p>
+                        <p class="text-muted d-none" data-topup-unavailable></p>
+
+                        <div class="d-none" data-topup-body>
+                            @* Credits are prepaid SERVICE units (they pay mint/registration
+                               fees), deliberately not presented as a sats money balance —
+                               the platform is not a funds custodian. Only the Lightning
+                               invoice line speaks sats: that's what the wallet pays. *@
+                            <p class="mb-2">
+                                Balance: <strong data-topup-balance>—</strong>
+                                <span class="text-muted small">— credits pay mint and registration fees.</span>
+                            </p>
+                            <p class="small text-warning d-none" data-topup-needs-plan>
+                                Credits only become spendable with an active plan — choose one above
+                                first (every plan includes credits to get you started).
+                            </p>
+                            <div data-topup-packages class="mb-2"></div>
+
+                            <div class="d-none border rounded p-3 mt-2" style="max-width: 26rem;" data-topup-invoice>
+                                <p class="mb-2" data-topup-pay-line>Pay <strong data-topup-amount></strong> with any Lightning wallet:</p>
+                                <div data-topup-qr-wrap class="text-center mb-2">
+                                    <img data-topup-qr alt="Lightning invoice QR" class="img-fluid rounded bg-white p-2"
+                                         style="max-width: 220px;" />
+                                </div>
+                                <div class="input-group input-group-sm mb-2" data-topup-bolt11-row>
+                                    <input type="text" class="form-control font-monospace" readonly data-topup-bolt11 />
+                                    <button type="button" class="btn btn-outline-secondary" data-topup-copy>Copy invoice</button>
+                                </div>
+                                <p class="small text-muted mb-0" data-topup-state></p>
+                            </div>
+
+                            <p class="text-danger small d-none mt-2" data-topup-error></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script src="~/plugins/smv/subscription.js"></script>
+            <script src="~/plugins/smv/topup.js"></script>
+        }
+
+    </div>
+</div>

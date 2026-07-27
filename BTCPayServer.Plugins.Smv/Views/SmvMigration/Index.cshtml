@@ -1,0 +1,111 @@
+@model BTCPayServer.Plugins.Smv.Controllers.SmvMigrationPageModel
+
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "SMV — Migration";
+    var outcome = TempData["MigrationOutcome"] as string;
+    var message = TempData["MigrationMessage"] as string;
+    var alertClass = outcome switch
+    {
+        "Ok" => "alert-success",
+        "Refused" => "alert-danger",
+        _ => "alert-secondary"
+    };
+}
+
+<div class="row">
+    <div class="col-md-9">
+
+        <h2 class="mb-3">@ViewData["Title"]</h2>
+
+        <p class="text-muted">
+            One-shot migration of the legacy server-global backend configuration into a single,
+            explicitly selected Store. Server-admin only. Ordinary Store settings pages are unaffected.
+        </p>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @alertClass">@message</div>
+        }
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Current state</h5>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Migrated</dt>
+                    <dd class="col-sm-8">
+                        @if (Model.Status.Migrated)
+                        {
+                            <span class="badge bg-success">Yes</span>
+                            <span class="ms-2 text-muted">Store @Model.Status.TargetStoreId · @Model.Status.MigratedAtUtc</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">No</span>
+                        }
+                    </dd>
+
+                    <dt class="col-sm-4">Legacy backend config present</dt>
+                    <dd class="col-sm-8">@(Model.Status.LegacyBackendPresent ? "Yes" : "No")</dd>
+
+                    <dt class="col-sm-4">Protected backup present</dt>
+                    <dd class="col-sm-8">@(Model.Status.BackupPresent ? "Yes" : "No")</dd>
+                </dl>
+            </div>
+        </div>
+
+        @if (!Model.Status.Migrated)
+        {
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Run migration</h5>
+                    <p class="text-muted">
+                        Select the owner Store explicitly. The backend credentials move to that Store
+                        (encrypted), the global record is reduced to its public subset, and a protected
+                        backup is written. A Store that already has SMV settings will not be overwritten.
+                    </p>
+                    <form method="post" asp-controller="SmvMigration" asp-action="Migrate">
+                        @Html.AntiForgeryToken()
+                        <div class="form-group mb-3">
+                            <label for="targetStoreId" class="form-label">Target Store</label>
+                            <select id="targetStoreId" name="targetStoreId" class="form-select">
+                                <option value="">— Select a Store —</option>
+                                @foreach (var store in Model.Stores)
+                                {
+                                    <option value="@store.Id">@store.Name (@store.Id)</option>
+                                }
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary"
+                                disabled="@(Model.Status.LegacyBackendPresent ? null : "disabled")">
+                            Migrate to selected Store
+                        </button>
+                        @if (!Model.Status.LegacyBackendPresent)
+                        {
+                            <div class="form-text">No legacy backend configuration to migrate.</div>
+                        }
+                    </form>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="card mb-4 border-warning">
+                <div class="card-body">
+                    <h5 class="card-title">Structural rollback</h5>
+                    <p class="text-muted">
+                        Removes the migration marker and the Store record created by the migration. The
+                        global record stays reduced to its public subset and the protected backup is kept.
+                        No credential is ever written back in plaintext — after downgrade, re-enter
+                        credentials manually in the legacy plugin.
+                    </p>
+                    <form method="post" asp-controller="SmvMigration" asp-action="Rollback">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-outline-warning">Roll back (structural)</button>
+                    </form>
+                </div>
+            </div>
+        }
+
+    </div>
+</div>

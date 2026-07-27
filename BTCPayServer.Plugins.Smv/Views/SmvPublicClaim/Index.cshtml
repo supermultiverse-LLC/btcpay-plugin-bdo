@@ -1,0 +1,178 @@
+@model BTCPayServer.Plugins.Smv.Controllers.PublicClaimViewModel
+@using BTCPayServer.Plugins.Smv.Controllers
+@{
+    // RFC-PLUGIN-009: PUBLIC page on the merchant's own domain — no BTCPay
+    // layout (that's the merchant's backoffice chrome), no inline JS (CSP).
+    // Everything is full-page POSTs; the merchant's brand carries the page.
+    Layout = null;
+    var storeId = Model.StoreId;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>@Model.StoreName — Claim your Bitcoin Digital Object</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+               background: #f5f6f8; color: #1c1f26; display: flex; min-height: 100vh;
+               align-items: center; justify-content: center; padding: 1.5rem; box-sizing: border-box; }
+        @@media (prefers-color-scheme: dark) {
+            body { background: #14161a; color: #e8eaed; }
+        }
+        .wrap { width: 100%; max-width: 26rem; }
+        .card { background: #fff; border-radius: 14px; padding: 1.5rem;
+                box-shadow: 0 4px 16px rgba(0,0,0,.08); margin-bottom: 1rem; }
+        @@media (prefers-color-scheme: dark) { .card { background: #1e2128; box-shadow: none; border: 1px solid #2c3038; } }
+        h1 { font-size: 1.15rem; margin: 0 0 .25rem; }
+        h2 { font-size: 1rem; margin: 0 0 .5rem; }
+        .muted { opacity: .65; font-size: .85rem; }
+        .asset-img { width: 100%; border-radius: 10px; display: block; margin-bottom: .75rem; }
+        .error { background: rgba(220,53,69,.12); border: 1px solid rgba(220,53,69,.35);
+                 border-radius: 8px; padding: .6rem .8rem; font-size: .9rem; margin-bottom: .75rem; }
+        .notice { background: rgba(25,135,84,.12); border: 1px solid rgba(25,135,84,.35);
+                  border-radius: 8px; padding: .6rem .8rem; font-size: .9rem; margin-bottom: .75rem; }
+        label { display: block; font-size: .85rem; margin-bottom: .25rem; font-weight: 600; }
+        input[type=text], input[type=email] { width: 100%; box-sizing: border-box; padding: .55rem .7rem;
+                 border-radius: 8px; border: 1px solid #c8ccd4; font-size: 1rem; margin-bottom: .75rem;
+                 background: inherit; color: inherit; }
+        .code-input { font-family: ui-monospace, monospace; text-align: center; letter-spacing: .35em; }
+        button { width: 100%; padding: .65rem; border: 0; border-radius: 8px; font-size: 1rem;
+                 font-weight: 600; background: #16a34a; color: #fff; cursor: pointer; }
+        button:hover { background: #12813b; }
+        .tos { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem; margin-bottom: .9rem; }
+        .tos input { margin-top: .2rem; }
+        .footer { text-align: center; font-size: .72rem; opacity: .55; }
+        .footer a { color: inherit; }
+        .success-icon { font-size: 2.2rem; text-align: center; margin-bottom: .5rem; }
+        .center { text-align: center; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="card">
+        <h1>@Model.StoreName</h1>
+        <div class="muted">Claim your Bitcoin Digital Object</div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.Error))
+    {
+        <div class="error">@Model.Error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(Model.Notice))
+    {
+        <div class="notice">@Model.Notice</div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Enter)
+    {
+        <div class="card">
+            <h2>Enter your claim code</h2>
+            <p class="muted">It looks like <code>BDO-XXXX-XXXX-XXXX</code> and came with this link.</p>
+            <form method="get" action="/plugins/smv/claim/@storeId">
+                <label for="code">Claim code</label>
+                <input id="code" name="code" type="text" class="code-input" value="@Model.Code"
+                       placeholder="BDO-XXXX-XXXX-XXXX" required autofocus />
+                <button type="submit">Continue</button>
+            </form>
+        </div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Card || Model.Stage == PublicClaimStage.Otp)
+    {
+        <div class="card">
+            @if (!string.IsNullOrWhiteSpace(Model.AssetImageUrl))
+            {
+                <img class="asset-img" src="@Model.AssetImageUrl" alt="@Model.AssetName" />
+            }
+            <h2>@Model.AssetName</h2>
+            <div class="muted">
+                @Model.CollectionName@(string.IsNullOrWhiteSpace(Model.IssuerName) ? "" : $" · {Model.IssuerName}")
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.AssetDescription))
+            {
+                <p class="muted">@Model.AssetDescription</p>
+            }
+        </div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Card)
+    {
+        <div class="card">
+            <h2>Claim it with your email</h2>
+            <p class="muted">
+                We'll email you a 6-digit code — no password needed. New here? Your
+                account is created automatically; your email is how you get back to it.
+            </p>
+            <form method="post" action="/plugins/smv/claim/@storeId/send-code">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="code" value="@Model.Code" />
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" required autocomplete="email" />
+                <div class="tos">
+                    <input type="checkbox" id="tos" name="tosAccepted" value="true" required />
+                    <label for="tos" style="font-weight:400;">
+                        I accept the <a href="https://app.supermultiverse.io/legal" target="_blank" rel="noopener">Terms of Service</a>
+                        <span class="muted">(powered by Supermultiverse)</span>
+                    </label>
+                </div>
+                <button type="submit">Send code</button>
+            </form>
+        </div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Otp)
+    {
+        <div class="card">
+            <h2>Enter the code from your email</h2>
+            <form method="post" action="/plugins/smv/claim/@storeId/claim">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="code" value="@Model.Code" />
+                <input type="hidden" name="email" value="@Model.Email" />
+                <label for="otp">6-digit code</label>
+                <input id="otp" name="otp" type="text" class="code-input" inputmode="numeric"
+                       autocomplete="one-time-code" maxlength="10" required autofocus />
+                <button type="submit">Claim my BDO</button>
+            </form>
+            <form method="post" action="/plugins/smv/claim/@storeId/send-code" style="margin-top:.6rem;">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="code" value="@Model.Code" />
+                <input type="hidden" name="email" value="@Model.Email" />
+                <input type="hidden" name="tosAccepted" value="true" />
+                <button type="submit" style="background:transparent;color:inherit;font-weight:400;font-size:.85rem;text-decoration:underline;">
+                    Send a new code
+                </button>
+            </form>
+        </div>
+    }
+
+    @if (Model.Stage == PublicClaimStage.Done)
+    {
+        <div class="card center">
+            <div class="success-icon">✅</div>
+            <h2>@(Model.AssetName ?? "Your BDO") is yours</h2>
+            @if (!string.IsNullOrWhiteSpace(Model.AssetImageUrl))
+            {
+                <img class="asset-img" src="@Model.AssetImageUrl" alt="@Model.AssetName" style="max-width:10rem;margin:0 auto .75rem;" />
+            }
+            <p class="muted">
+                It's now in the account <strong>@Model.Email</strong>. Access it any time with
+                your email — no password needed.
+            </p>
+            <p class="muted">
+                Want the full experience (collection view, sending, self-custody withdrawal)?
+                <a href="https://app.supermultiverse.io" target="_blank" rel="noopener">Open the Supermultiverse app</a>
+                and sign in with the same email.
+            </p>
+        </div>
+    }
+
+    <div class="footer">
+        Bitcoin Digital Objects · issued by @Model.StoreName ·
+        infrastructure powered by <a href="https://supermultiverse.io" target="_blank" rel="noopener">Supermultiverse</a>
+    </div>
+</div>
+</body>
+</html>

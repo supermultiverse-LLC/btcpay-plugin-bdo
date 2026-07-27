@@ -1,0 +1,138 @@
+@model BTCPayServer.Plugins.Smv.Controllers.SmvReceiveVm
+@{
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+}
+
+<h2>Receive BDO</h2>
+
+<partial name="_SmvPluginNav" />
+
+<p class="text-muted">
+    Generate a receive address for an external Bitcoin Digital Object (BDO). Ask the sender for the BDO ID,
+    paste it below, and share the generated address.
+</p>
+
+@if (Model.AccountGate)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Activate your BDO account</h5>
+            <p class="card-text text-muted">
+                Your BDO account <strong>is</strong> your wallet — activate it in seconds with just an
+                email and password, right here in BTCPay, and start receiving Bitcoin Digital Objects.
+                Already have one? Sign in with the same button.
+            </p>
+            <a class="btn btn-primary" href="@Url.Action("Index", "SmvSettings", new { storeId })">
+                Activate account
+            </a>
+        </div>
+    </div>
+}
+else
+{
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-danger">
+        @Model.Error
+    </div>
+}
+
+@if (Model.IsHosted)
+{
+    @* Receive-side of a claim (Hosted): someone sent this Store a claim link —
+       redeem the code here, straight into the Store's wallet. No PWA, no email
+       round-trip: the Store's connection already proves the account. *@
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Redeem a claim code</h5>
+            <p class="card-text text-muted small mb-2">
+                Were you sent a claim link or code (<code>BDO-XXXX-XXXX-XXXX</code>)?
+                Redeem it here and the BDO lands directly in this Store's wallet.
+            </p>
+            <form method="post" asp-controller="SmvClaim" asp-action="Redeem" asp-route-storeId="@storeId" class="d-flex gap-2" style="max-width: 28rem;">
+                @Html.AntiForgeryToken()
+                <input name="code" type="text" class="form-control font-monospace" placeholder="BDO-XXXX-XXXX-XXXX" required />
+                <button type="submit" class="btn btn-primary">Redeem</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="text-muted small mb-2">Or generate an on-chain receive address:</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.TapdBaseUrl))
+    {
+        <div class="alert alert-secondary">
+            Connected BDO infrastructure: <code>@Model.TapdBaseUrl</code>
+        </div>
+    }
+
+    <form method="post" asp-controller="SmvReceive" asp-action="Generate" asp-route-storeId="@storeId" class="mb-4">
+        @Html.AntiForgeryToken()
+
+        <div class="form-group mb-3">
+            <label for="assetId">BDO ID</label>
+            <input id="assetId"
+                   name="assetId"
+                   class="form-control"
+                   value="@Model.AssetId"
+                   placeholder="64-character BDO ID" />
+            <small class="form-text text-muted">
+                Paste the BDO ID provided by the sender.
+            </small>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="amount">Amount</label>
+            <input id="amount"
+                   name="amount"
+                   class="form-control"
+                   value="@Model.Amount"
+                   placeholder="1" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            Generate Receive Address
+        </button>
+    </form>
+
+    @if (Model.ReceiveAddress is not null)
+    {
+        <div class="card border-success mb-4">
+            <div class="card-body">
+                <h4 class="card-title text-success">Receive Address Generated</h4>
+
+                <div class="alert alert-success">
+                    BDO receive address generated successfully.
+                </div>
+
+                <div class="mb-3">
+                    <label>Address</label>
+                    <textarea class="form-control" rows="5" readonly>@Model.ReceiveAddress.Encoded</textarea>
+                </div>
+
+                @* TODO(PR-3): Copy button and QR code go here once shared client-side
+                   support exists. Layout is intentionally left ready; no JS/logic added
+                   in this PR to keep it view-only. *@
+
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">BDO ID</dt>
+                    <dd class="col-sm-9"><code>@Model.ReceiveAddress.AssetId</code></dd>
+
+                    <dt class="col-sm-3">BDO Type</dt>
+                    <dd class="col-sm-9">@Model.ReceiveAddress.AssetType</dd>
+
+                    <dt class="col-sm-3">Amount</dt>
+                    <dd class="col-sm-9">@Model.ReceiveAddress.Amount</dd>
+
+                    <dt class="col-sm-3">Proof courier</dt>
+                    <dd class="col-sm-9"><code>@Model.ReceiveAddress.ProofCourierAddr</code></dd>
+
+                    <dt class="col-sm-3">BDO Version</dt>
+                    <dd class="col-sm-9">@Model.ReceiveAddress.AssetVersion</dd>
+                </dl>
+            </div>
+        </div>
+    }
+}

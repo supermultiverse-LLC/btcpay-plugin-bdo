@@ -1,0 +1,27 @@
+@*
+    Two prominent sub-tabs under Create — the core of the product. "Mint one BDO"
+    (a single unique object) vs "Mint a series" (many unique BDOs in ~1 tx = the
+    moat). Active tab is derived from the request path. Rendered on both pages.
+*@
+@{
+    var subStoreId = Context.GetStoreDataOrNull()?.Id;
+    var subPath = ViewContext.HttpContext.Request.Path.Value ?? string.Empty;
+    var onSeries = subPath.Contains("/batch", System.StringComparison.OrdinalIgnoreCase);
+}
+
+<div class="row g-2 mb-4">
+    <div class="col-6">
+        <a class="btn w-100 text-start p-3 @(onSeries ? "btn-outline-success" : "btn-primary")"
+           asp-controller="SmvCreate" asp-action="Index" asp-route-storeId="@subStoreId">
+            <div class="fw-bold">Mint one BDO</div>
+            <div class="small @(onSeries ? "text-muted" : "")">A single unique Bitcoin Digital Object.</div>
+        </a>
+    </div>
+    <div class="col-6">
+        <a class="btn w-100 text-start p-3 @(onSeries ? "btn-primary" : "btn-outline-success")"
+           asp-controller="SmvBatch" asp-action="Index" asp-route-storeId="@subStoreId">
+            <div class="fw-bold">Mint a series</div>
+            <div class="small @(onSeries ? "" : "text-muted")">Many unique BDOs at once, in ~1 transaction.</div>
+        </a>
+    </div>
+</div>

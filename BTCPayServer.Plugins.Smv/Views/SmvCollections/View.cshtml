@@ -1,0 +1,123 @@
+@using BTCPayServer.Plugins.Smv.Models
+@model CollectionResponse
+
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = $"SMV — {Model.Collection.Name}";
+
+    var c = Model.Collection;
+    var items = Model.Items ?? new List<CollectionItem>();
+    var verifiableCount = items.Count(i => i.Verification?.Status == "verifiable");
+}
+
+<section class="container my-4">
+    <nav class="mb-3">
+        <a asp-controller="SmvCollections" asp-action="Browse">
+            &larr; Browse another collection
+        </a>
+    </nav>
+
+    <header class="d-flex flex-column flex-md-row gap-3 mb-4">
+        @if (!string.IsNullOrEmpty(c.CoverImageUrl))
+        {
+            <img src="@c.CoverImageUrl"
+                 alt="@c.Name"
+                 style="width:160px;height:160px;object-fit:cover;border-radius:8px;" />
+        }
+
+        <div>
+            <h2 class="mb-1">@c.Name</h2>
+
+            @if (!string.IsNullOrEmpty(c.IssuerName))
+            {
+                <p class="text-muted mb-1">
+                    Issued by <strong>@c.IssuerName</strong>
+                </p>
+            }
+
+            <p class="mb-1">
+                <span class="badge bg-secondary me-1">
+                    Slug: @c.Slug
+                </span>
+
+                @if (c.TotalSupply.HasValue)
+                {
+                    <span class="badge bg-secondary me-1">
+                        Total supply: @c.TotalSupply
+                    </span>
+                }
+
+                <span class="badge bg-success me-1">
+                    Verifiable: @verifiableCount
+                </span>
+
+                <span class="badge bg-dark">
+                    Network: @Model.Network
+                </span>
+            </p>
+
+            @if (!string.IsNullOrEmpty(c.Description))
+            {
+                <p class="mt-2">@c.Description</p>
+            }
+        </div>
+    </header>
+
+    @if (items.Count == 0)
+    {
+        <div class="alert alert-warning">
+            No verifiable assets in this collection yet.
+        </div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
+            @foreach (var item in items)
+            {
+                <div class="col">
+                    <div class="card h-100">
+                        @if (!string.IsNullOrEmpty(item.ImageUrl))
+                        {
+                            <img src="@item.ImageUrl"
+                                 alt="@item.Name"
+                                 class="card-img-top"
+                                 style="aspect-ratio:1/1;object-fit:cover;" />
+                        }
+
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title mb-1">@item.Name</h5>
+
+                            <p class="card-text small text-muted mb-2">
+                                @if (!string.IsNullOrEmpty(item.Rarity))
+                                {
+                                    <span class="badge bg-info text-dark me-1">
+                                        @item.Rarity
+                                    </span>
+                                }
+
+                                @if (item.Supply.HasValue)
+                                {
+                                    <span class="badge bg-secondary me-1">
+                                        Supply: @item.Supply
+                                    </span>
+                                }
+
+                                @if (item.Verification?.Status == "verifiable")
+                                {
+                                    <span class="badge bg-success">
+                                        Verifiable
+                                    </span>
+                                }
+                            </p>
+
+                            <a class="btn btn-outline-primary btn-sm mt-auto"
+                               href="/plugins/smv/verify/lookup?id=@item.Id">
+                                Verify on Bitcoin
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</section>

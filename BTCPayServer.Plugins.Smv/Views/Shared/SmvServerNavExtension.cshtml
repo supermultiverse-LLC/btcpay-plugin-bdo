@@ -1,0 +1,11 @@
+@using BTCPayServer.Client
+@model BTCPayServer.Components.MainNav.MainNavViewModel
+
+@* Server-admin entry for the one-shot P2 migration surface (TD §6.4). *@
+<li class="nav-item nav-item-sub" permission="@Policies.CanModifyServerSettings">
+    <a asp-area=""
+       asp-controller="SmvMigration"
+       asp-action="Index"
+       layout-menu-item="SmvMigration"
+       text-translate="true">SMV Migration</a>
+</li>

@@ -1,0 +1,253 @@
+@using System
+@using BTCPayServer.Plugins.Smv.Controllers
+@model SmvBatchVm
+@{
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+}
+
+<h2>Create</h2>
+
+<partial name="_SmvPluginNav" />
+
+<partial name="_SmvCreateSubnav" />
+
+<p class="text-muted">
+    Mint <strong>many unique BDOs at once</strong> — a series of N one-of-a-kind Bitcoin Digital
+    Objects anchored in a <strong>single on-chain transaction</strong> via a shared group key.
+    Each BDO is named <code>&lt;series&gt; #0001</code>, <code>#0002</code>, … Pay one Lightning
+    fee; the series appears in <a asp-controller="SmvMyAssets" asp-action="Index" asp-route-storeId="@storeId">My BDOs</a>.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-danger">@Model.Error</div>
+}
+
+@if (Model.Disabled)
+{
+    <div class="alert alert-warning">
+        <strong>Batch minting isn't available for a self-custody wallet yet.</strong>
+        <div class="mt-1">
+            Issuance is <strong>hosted-only</strong> in this version. Configure this Store with the
+            hosted backend in
+            <a asp-controller="SmvSettings" asp-action="Index" asp-route-storeId="@storeId">Settings</a>.
+        </div>
+    </div>
+}
+else if (!Model.NotConfigured)
+{
+    <div class="alert alert-secondary">
+        <strong>The moat.</strong> A batch of 2,000 unique BDOs costs roughly the <em>same</em>
+        on-chain fee as one — the whole series anchors in ~1 transaction. Maximum
+        <strong>2,000</strong> per batch.
+        @if (!string.IsNullOrWhiteSpace(Model.ConnectionLabel))
+        {
+            <span class="d-block mt-1">Connected: <code>@Model.ConnectionLabel</code></span>
+        }
+    </div>
+
+    @* ── Cost shape — the BATCH anchor estimate (same 154 vB math as the commit,
+       same fee-rate call, so it can't diverge like the old single-mint borrow). *@
+    @if (Model.UnitQuote is not null)
+    {
+        var batchOnchain = Model.UnitQuote.BatchOnchainFeeSats ?? Model.UnitQuote.OnchainFeeSats;
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Estimated cost</h5>
+                <div class="small text-muted">
+                    On-chain <strong>@batchOnchain credits</strong> (one-off — ~fixed for the whole series)
+                    + platform <strong>@Model.UnitQuote.PlatformMarginSats credits × quantity</strong>.
+                    @if (!string.IsNullOrWhiteSpace(Model.UnitQuote.Network))
+                    {
+                        <span>· @Model.UnitQuote.Network</span>
+                    }
+                </div>
+                <div class="small fw-semibold mt-1"
+                     data-batch-estimate
+                     data-batch-onchain="@batchOnchain"
+                     data-batch-margin="@Model.UnitQuote.PlatformMarginSats">
+                    Estimated total: <span data-batch-estimate-total>—</span> credits
+                </div>
+                <div class="small text-muted">
+                    Charged to your credit balance when it covers the total; otherwise a Lightning
+                    invoice shows the exact amount before you pay. Your receipt shows the exact charge.
+                </div>
+            </div>
+        </div>
+        @* The live-total logic lives in batch.js (initEstimate) — BTCPay's CSP
+           blocks inline scripts on backoffice pages, so an inline block here
+           silently never runs. *@
+    }
+
+    @* ── The submitted batch: LN invoice OR credits receipt; batch.js polls by phase ─── *@
+    @if (Model.Result is not null)
+    {
+        <div class="card border-warning mb-4" data-smv-batch-panel data-batch-ref="@Model.Result.BatchRef">
+            <div class="card-body">
+                @if (Model.Result.Invoice is { Bolt11: not null } invoice)
+                {
+                <h4 class="card-title" data-batch-card-title>Pay the Lightning fee to mint your batch</h4>
+
+                <div data-batch-invoice>
+                    <p class="text-muted mb-2">
+                        Scan or pay this Lightning invoice. Minting starts automatically once the
+                        payment settles — this can take a few minutes for a large batch. This page
+                        updates on its own.
+                    </p>
+
+                    <div>
+                        <span class="badge bg-secondary">@invoice.AmountSats sats</span>
+                        @if (!string.IsNullOrWhiteSpace(invoice.ExpiresAt))
+                        {
+                            <span class="badge bg-secondary ms-1">Expires @invoice.ExpiresAt</span>
+                        }
+                    </div>
+
+                    <div class="text-center my-3">
+                        <img src="@($"/plugins/smv/qr?data={Uri.EscapeDataString(invoice.Bolt11!)}")"
+                             alt="Lightning invoice QR"
+                             class="bg-white p-2 rounded"
+                             style="max-width: 240px; width: 100%; height: auto; image-rendering: pixelated;" />
+                    </div>
+
+                    <label class="form-label small mb-1">Lightning invoice</label>
+                    <textarea class="form-control font-monospace small" rows="4" readonly>@invoice.Bolt11</textarea>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2"
+                            data-copy-invoice="@invoice.Bolt11">Copy invoice</button>
+                </div>
+                }
+                else if (Model.Result.CreditsCharged is not null)
+                {
+                @* Credits-first (§13 amendment): the whole series was paid from
+                   the merchant's credit balance — no invoice, mint underway. *@
+                <h4 class="card-title" data-batch-card-title>Minting your batch…</h4>
+                <div class="alert alert-success py-2">
+                    Paid with <strong>@Model.Result.CreditsCharged?.ToString("N0") credits</strong>
+                    <span class="text-muted">— balance: @Model.Result.CreditsBalanceAfter?.ToString("N0")</span>
+                </div>
+                <p class="text-muted mb-2">
+                    No Lightning payment needed. Minting a large batch can take a few minutes —
+                    this page updates on its own.
+                </p>
+                }
+                else
+                {
+                <h4 class="card-title" data-batch-card-title>Minting your batch…</h4>
+                }
+
+                @* Progress — phase-based (minted jumps 0→N atomically, so we show the phase). *@
+                <div class="alert alert-info d-none mb-0" data-batch-status>
+                    <h5 class="alert-heading mb-1" data-batch-status-title>Minting your batch…</h5>
+                    <div data-batch-status-message></div>
+                </div>
+
+                @* Success — shown on `minted`; links to the resulting collection. *@
+                <div class="alert alert-success d-none mb-0" data-batch-success>
+                    <strong>Your batch has been minted ✓</strong>
+                    <div class="small mt-1" data-batch-success-message></div>
+                    <div class="mt-3">
+                        <a class="btn btn-light btn-sm d-none" data-batch-collection-link
+                           asp-controller="SmvMyAssets" asp-action="Index" asp-route-storeId="@storeId">View in My BDOs</a>
+                    </div>
+                </div>
+
+                @* Refund-as-credit — shown on `refunded_credit`. *@
+                <div class="alert alert-warning d-none mb-0" data-batch-refund>
+                    <strong>The batch couldn't complete — you were refunded as credit</strong>
+                    <div class="small mt-1" data-batch-refund-message></div>
+                </div>
+
+                @* Error — shown on `failed`. *@
+                <div class="alert alert-danger d-none mb-0" data-batch-error>
+                    <strong>Batch mint failed.</strong>
+                    <div class="small mt-1" data-batch-error-message></div>
+                </div>
+            </div>
+        </div>
+
+        @* Store-scoped status endpoint + the collection link template for batch.js. *@
+        <div data-smv-batch
+             data-batch-status-endpoint="@Url.Action("Status", "SmvBatch", new { storeId, batchRef = "__REF__" })"
+             data-collection-base="@Url.Action("Collection", "SmvMyAssets", new { storeId, collectionId = "__ID__" })">
+        </div>
+    }
+
+    @* ── The batch form — hidden once an invoice/mint panel is on screen ───────── *@
+    @if (Model.Result is null)
+    {
+    <form method="post" asp-controller="SmvBatch" asp-action="Create" asp-route-storeId="@storeId" class="mb-4">
+        @Html.AntiForgeryToken()
+
+        <div class="form-group mb-3">
+            <label for="SeriesName">Series name <span class="text-danger">*</span></label>
+            <input id="SeriesName" name="SeriesName" class="form-control" value="@Model.SeriesName"
+                   placeholder="e.g. Genesis Ticket" />
+            <small class="form-text text-muted">Each BDO is named <code>&lt;series&gt; #0001</code>, <code>#0002</code>, … (zero-padded).</small>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="UnitCount">Quantity <span class="text-danger">*</span></label>
+            <input id="UnitCount" name="UnitCount" type="number" min="1" max="2000" class="form-control"
+                   value="@Model.UnitCount" />
+            <small class="form-text text-muted">How many unique BDOs to mint (1–2,000). All anchored in one transaction.</small>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="ImageUrl">Image <span class="text-danger">*</span></label>
+            @* Same upload-from-device flow as the single Create: the picker
+               uploads to platform storage and fills #ImageUrl (upload-image.js
+               binds by these exact ids). The batch surface is hosted+connected
+               by definition, so no extra gating needed. *@
+            <input id="ImageUploadFile" type="file" class="form-control mb-2"
+                   accept="image/png,image/jpeg,image/webp"
+                   data-upload-endpoint="@Url.Action("UploadImage", "SmvCreate", new { storeId })" />
+            <small id="ImageUploadStatus" class="form-text text-muted d-block mb-2">
+                Upload from your device (PNG/JPEG/WebP, max 10 MB) — it's hosted for you at a permanent URL.
+            </small>
+            <input id="ImageUrl" name="ImageUrl" type="url" required class="form-control" value="@Model.ImageUrl"
+                   placeholder="https://… (or paste a public image link)" />
+            <small class="form-text text-muted">Shared across the series. We re-host it so it's permanent.</small>
+        </div>
+
+        @* Collection name removed from the form (2026-07-26): it confused merchants
+           vs "Series name". The collection always takes the series name now — the
+           controller's fallback already does exactly that with an empty value. *@
+
+        <div class="form-group mb-3">
+            <label for="Description">Description <span class="text-muted">(optional)</span></label>
+            <textarea id="Description" name="Description" class="form-control" rows="3">@Model.Description</textarea>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="AttributesText">Attributes <span class="text-muted">(optional, shared)</span></label>
+            <textarea id="AttributesText" name="AttributesText" class="form-control" rows="3"
+                      placeholder="tier: gold&#10;edition: genesis">@Model.AttributesText</textarea>
+            <small class="form-text text-muted">One per line, as <code>trait: value</code>. Shared across every BDO in the series.</small>
+        </div>
+
+        @* The credits-first charge happens THE MOMENT this is clicked (no invoice
+           step to double-check on) — so the price and its breakdown must live on
+           the button itself. Without a quote there is no number to promise, so
+           fall back to the neutral label. *@
+        @if (Model.UnitQuote is not null)
+        {
+            <button type="submit" class="btn btn-primary">
+                Mint series — pay ~<span data-batch-pay-total>…</span> credits
+            </button>
+            <div class="small text-muted mt-2">
+                <span data-batch-pay-breakdown></span><br />
+                If your credit balance covers the total it is <strong>charged immediately</strong> when you
+                click — no invoice step. Otherwise a Lightning invoice shows the exact amount first.
+                Nothing is ever charged twice.
+            </div>
+        }
+        else
+        {
+            <button type="submit" class="btn btn-primary">Continue to payment</button>
+        }
+    </form>
+    }
+
+    <script src="~/plugins/smv/batch.js"></script>
+    <script src="~/plugins/smv/upload-image.js"></script>
+}

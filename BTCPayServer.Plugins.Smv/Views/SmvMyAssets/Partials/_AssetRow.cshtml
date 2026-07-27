@@ -1,0 +1,122 @@
+@model BTCPayServer.Plugins.Smv.Services.Tapd.TapdAsset
+
+@{
+    var name = Model.Name ?? "Unknown";
+    var fullId = Model.AssetId ?? "";
+    var shortId = fullId;
+    var amount = Model.Amount ?? "-";
+
+    var suffix = string.IsNullOrWhiteSpace(fullId)
+        ? name.Replace(" ", "-").ToLowerInvariant()
+        : fullId;
+
+    suffix = suffix
+        .Replace(":", "")
+        .Replace(".", "")
+        .Replace("/", "")
+        .Replace("\\", "")
+        .Replace(" ", "-");
+
+    if (suffix.Length > 16)
+    {
+        suffix = suffix.Substring(0, 16);
+    }
+
+    var infoId = "asset-info-" + suffix;
+    var sendId = "asset-send-" + suffix;
+
+    if (!string.IsNullOrWhiteSpace(shortId) && shortId.Length > 18)
+    {
+        shortId = shortId.Substring(0, 8) + "..." + shortId.Substring(shortId.Length - 8);
+    }
+}
+
+<tr>
+    <td>
+        <div class="d-flex align-items-center gap-2">
+            @if (!string.IsNullOrWhiteSpace(Model.ImageUrl))
+            {
+                <img src="@Model.ImageUrl" alt="" data-asset-thumb
+                     class="rounded flex-shrink-0"
+                     style="width:36px;height:36px;object-fit:cover;" />
+            }
+            else
+            {
+                <span class="rounded bg-secondary d-inline-flex align-items-center justify-content-center flex-shrink-0"
+                      style="width:36px;height:36px;font-size:0.65rem;opacity:.6;">BDO</span>
+            }
+            <strong>@name</strong>
+            @if (Model.IsConfirming)
+            {
+                @* Explicit color: BTCPay's dark theme overrides .text-dark, leaving
+                   near-white text on the yellow badge. *@
+                <span class="badge bg-warning" style="color:#212529;"
+                      title="The mint transaction is broadcast and waiting for a Bitcoin block. This usually takes a few minutes to an hour.">
+                    Confirming on Bitcoin…
+                </span>
+            }
+        </div>
+    </td>
+
+    <td>
+        <code class="small">@shortId</code>
+
+        @if (!string.IsNullOrWhiteSpace(fullId))
+        {
+            <button type="button"
+                    class="btn btn-link btn-sm text-muted p-0 ms-2"
+                    title="Copy full BDO ID"
+                    data-copy-text="@fullId">
+                Copy
+            </button>
+        }
+    </td>
+
+    <td>@amount</td>
+
+    <td class="text-end">
+        <div class="btn-group btn-group-sm">
+            @* Capability gate (gating matrix): known-denied assets:send → disabled with
+               an explanation; unknown (manual token) or BYON → enabled as always.
+               A confirming mint has no proof yet, so it cannot be sent either. *@
+            @if (Model.IsConfirming)
+            {
+                <button type="button" class="btn btn-outline-primary" disabled
+                        title="This BDO is waiting for its Bitcoin anchor to confirm — sending unlocks then.">
+                    Send
+                </button>
+            }
+            else if (ViewData["CanSend"] is false)
+            {
+                <button type="button" class="btn btn-outline-primary" disabled
+                        title="Your connection doesn't include sending — reconnect in Settings to update permissions.">
+                    Send
+                </button>
+            }
+            else
+            {
+                <button type="button"
+                        class="btn btn-outline-primary"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#@sendId">
+                    Send
+                </button>
+            }
+
+            <button type="button"
+                    class="btn btn-outline-secondary"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#@infoId">
+                Info
+            </button>
+        </div>
+    </td>
+</tr>
+
+<partial name="Partials/_SendPanel"
+         model="Model"
+         view-data='new ViewDataDictionary(ViewData) { { "SendId", sendId } }' />
+
+<partial name="Partials/_InfoPanel"
+         model="Model"
+         view-data='new ViewDataDictionary(ViewData) { { "InfoId", infoId } }' />

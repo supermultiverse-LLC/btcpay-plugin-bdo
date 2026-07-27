@@ -1,0 +1,18 @@
+@using BTCPayServer.Client
+@model BTCPayServer.Components.MainNav.MainNavViewModel
+
+@*
+    Single entry inside the Store's Integrations menu (P2 §5 / D3).
+    Landing surface is My Assets (CanViewStoreSettings). Receive, Send and
+    Settings are reached from within the plugin via _SmvPluginNav.cshtml.
+*@
+<li class="nav-item" permission="@Policies.CanViewStoreSettings">
+    <a layout-menu-item="SmvMyAssets"
+       asp-area=""
+       asp-controller="SmvMyAssets"
+       asp-action="Index"
+       asp-route-storeId="@Model.Store.Id">
+        <vc:icon symbol="nav-plugin" />
+        <span text-translate="true">Bitcoin Digital Objects</span>
+    </a>
+</li>

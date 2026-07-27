@@ -1,0 +1,23 @@
+@model IReadOnlyList<BTCPayServer.Plugins.Smv.Services.Tapd.TapdAsset>
+
+@* A holdings table for one group (a collection, the Unsorted bucket, or Editions).
+   Reuses the certified _AssetRow (+ its Send/Info panels and wallet.js wiring)
+   unchanged — grouping only reorganises where the same rows render. *@
+<div class="table-responsive px-2 px-sm-3 pb-2">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width:32%">Name</th>
+                <th style="width:34%">BDO ID</th>
+                <th style="width:10%">Amount</th>
+                <th class="text-end" style="width:24%">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var asset in Model)
+            {
+                <partial name="Partials/_AssetRow" model="asset" />
+            }
+        </tbody>
+    </table>
+</div>

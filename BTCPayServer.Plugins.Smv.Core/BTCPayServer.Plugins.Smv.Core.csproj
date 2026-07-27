@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BTCPayServer.Plugins.Smv.Core</RootNamespace>
+    <AssemblyName>BTCPayServer.Plugins.Smv.Core</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <!--
+      INTENTIONAL: this project must NOT reference BTCPayServer.csproj.
+      It contains the pure, host-independent logic (proof decoding, integrity
+      hashing, DTOs) so unit tests can run without compiling the BTCPay host.
+      Track B/C (tapd, gRPC, Universe, Receive, macaroons, workers) is out of scope.
+    -->
+  </PropertyGroup>
+</Project>

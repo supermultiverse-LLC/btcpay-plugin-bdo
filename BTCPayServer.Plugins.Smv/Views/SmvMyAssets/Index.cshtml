@@ -1,0 +1,266 @@
+@model BTCPayServer.Plugins.Smv.Services.Tapd.SmvMyAssetsViewModel
+
+@{
+    Layout = "/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "My BDOs";
+    var storeId = Context.GetStoreDataOrNull()?.Id;
+    var isCustodial = ViewData["IsCustodial"] is true;
+}
+
+<div class="row">
+    <div class="col-12">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">@ViewData["Title"]</h2>
+
+            @* Receive is available for both profiles (Hosted via the Managed Wallet
+               receive-address endpoint; BYON via the node). *@
+            <a class="btn btn-success"
+               asp-controller="SmvReceive" asp-action="Index" asp-route-storeId="@storeId">
+                Receive BDO
+            </a>
+        </div>
+
+        <partial name="_SmvPluginNav" />
+
+        <p class="text-muted">
+            Your Bitcoin Digital Objects are loaded from your connected BDO infrastructure.
+        </p>
+
+        @if (TempData["SmvRedeemSuccess"] is string redeemMsg)
+        {
+            @* Redeem lands HERE (where the result is tangible) with an unmissable,
+               dismissible confirmation — the Receive-page banner went unnoticed. *@
+            <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+                <strong>✅ @redeemMsg</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        @if (isCustodial)
+        {
+            @* Important but intrusive (Toni, 2026-07-27): collapsible, and the
+               choice persists per browser via localStorage (custody-note.js) so
+               nobody has to hide it every session. Header line always visible —
+               the custody FACT never disappears, only the explanation folds. *@
+            <div class="alert alert-warning py-2" data-custody-note>
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong>Hosted wallet — custodial.</strong>
+                    <button type="button" class="btn btn-sm btn-link text-dark p-0 text-decoration-underline" data-custody-toggle>Hide</button>
+                </div>
+                <div data-custody-body>
+                    This wallet is held by Supermultiverse (custodian). You keep ownership of your
+                    objects and can move them out at any time with <strong>Send</strong> — that is
+                    your exit path. This is <em>not</em> self-custody.
+                    @if (ViewData["TapdBaseUrl"] is string hostedLabel)
+                    {
+                        <div class="small mt-1">Backend: <code>@hostedLabel</code></div>
+                    }
+                </div>
+            </div>
+            <script src="~/plugins/smv/custody-note.js"></script>
+        }
+        else if (ViewData["TapdBaseUrl"] is string tapdBaseUrl)
+        {
+            <div class="alert alert-secondary">
+                Connected BDO infrastructure: <code>@tapdBaseUrl</code>
+                @* Journey fix "b": in self-custody the NODE defines possession —
+                   this list mirrors the node's wallet, not the signed-in account. *@
+                <span class="d-block small text-muted mt-1">
+                    These BDOs live on your node — whoever controls the node holds them. The connected
+                    account is only used for platform registration and enrichment.
+                </span>
+            </div>
+        }
+
+        @if (ViewData["AccountGate"] is true)
+        {
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Activate your BDO account</h5>
+                    <p class="card-text text-muted">
+                        Your BDO account <strong>is</strong> your wallet — activate it in seconds with just an
+                        email and password, right here in BTCPay, and your Bitcoin Digital Objects will live here.
+                        Already have one? Sign in with the same button.
+                    </p>
+                    <a class="btn btn-primary"
+                       href="@Url.Action("Index", "SmvSettings", new { storeId = Context.Request.RouteValues["storeId"] })">
+                        Activate account
+                    </a>
+                </div>
+            </div>
+        }
+
+        @if (ViewData["Error"] is string error)
+        {
+            <div class="alert alert-warning d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <span>@error</span>
+                @if (ViewData["ReconnectNeeded"] is true)
+                {
+                    <a class="btn btn-warning btn-sm"
+                       href="@Url.Action("Connect", "SmvOAuth", new { storeId = Context.Request.RouteValues["storeId"] })">
+                        Reconnect BDO account
+                    </a>
+                }
+            </div>
+        }
+
+        <partial name="Partials/_PendingIncoming" model="Model.PendingIncoming" />
+
+        @if (Model.IsEmpty && ViewData["AccountGate"] is not true)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">No BDOs found</h5>
+                    <p class="card-text text-muted mb-0">
+                        Configure your BDO infrastructure in Settings, or connect infrastructure that owns Bitcoin Digital Objects.
+                    </p>
+                </div>
+            </div>
+        }
+        else if (Model.UseHostedCollections)
+        {
+            @* ── Level 1 (Phase 2, Hosted): collection cards linking to the Level 2
+               detail. Fed by the scalable holdings-collections endpoint (no per-asset
+               fan-out); each card states possession vs collection size (§7 R3). *@
+            <div class="row g-3 mb-3">
+                @foreach (var c in Model.BdoCollections)
+                {
+                    <div class="col-md-6 col-lg-4">
+                        <a class="card h-100 text-decoration-none text-reset"
+                           asp-action="Collection" asp-route-storeId="@storeId" asp-route-collectionId="@c.CollectionId">
+                            <div class="card-body d-flex align-items-center gap-3">
+                                @* Placeholder base + cover overlaid: a valid image covers it;
+                                   a missing/broken one (img hidden by loader.js) shows the placeholder. *@
+                                <span class="rounded bg-secondary d-inline-flex align-items-center justify-content-center flex-shrink-0 position-relative overflow-hidden"
+                                      style="width:44px;height:44px;font-size:0.7rem;">
+                                    <span style="opacity:.6;">BDO</span>
+                                    @if (!string.IsNullOrWhiteSpace(c.CoverImageUrl))
+                                    {
+                                        <img src="@c.CoverImageUrl" alt="" data-asset-thumb
+                                             class="position-absolute top-0 start-0 w-100 h-100" style="object-fit:cover;" />
+                                    }
+                                </span>
+                                <div style="min-width:0;">
+                                    <div class="fw-semibold text-truncate">@c.Name</div>
+                                    <div class="small text-muted">
+                                        You hold <strong>@c.OwnedCount</strong>
+                                        @if (c.CollectionSize > 0)
+                                        {
+                                            <span>· Collection of @c.CollectionSize</span>
+                                        }
+                                    </div>
+                                </div>
+                                <span class="ms-auto text-primary small flex-shrink-0">View →</span>
+                            </div>
+                        </a>
+                    </div>
+                }
+            </div>
+
+            @if (Model.EditionCollections.Count > 0)
+            {
+                <div class="card border-warning mb-3">
+                    <div class="card-header">
+                        <div class="fw-semibold">Editions — fungible, not BDOs</div>
+                        <div class="small text-muted">
+                            Fungible assets held in this wallet — the amount is a <strong>balance</strong>, not a collection.
+                        </div>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var e in Model.EditionCollections)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>@e.Name</span>
+                                <span class="text-muted small">balance @e.OwnedCount</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        }
+        else
+        {
+            @* ── Level 1 (Phase 1 / BYON fallback): client-side groups ──────────────
+               One card per collection the merchant holds BDOs in. The header states
+               possession (You hold X) distinctly from collection size (Collection of Y),
+               so a count is never ambiguous (RFC-PLUGIN-005 §5). *@
+            @foreach (var group in Model.Collections)
+            {
+                <div class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-3">
+                        <span class="rounded bg-secondary d-inline-flex align-items-center justify-content-center flex-shrink-0 position-relative overflow-hidden"
+                              style="width:40px;height:40px;font-size:0.65rem;">
+                            <span style="opacity:.6;">BDO</span>
+                            @if (!string.IsNullOrWhiteSpace(group.CoverImageUrl))
+                            {
+                                <img src="@group.CoverImageUrl" alt="" data-asset-thumb
+                                     class="position-absolute top-0 start-0 w-100 h-100" style="object-fit:cover;" />
+                            }
+                        </span>
+                        <div>
+                            <div class="fw-semibold">@group.Name</div>
+                            <div class="small text-muted">
+                                You hold <strong>@group.HeldCount</strong>
+                                @if (group.TotalSupply is long ts)
+                                {
+                                    <span class="ms-1">· Collection of @ts</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <partial name="Partials/_AssetTable" model="group.Items" />
+                </div>
+            }
+
+            @* BDOs the Public API couldn't place in a collection. *@
+            @if (Model.Unsorted.Count > 0)
+            {
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <div class="fw-semibold">Unsorted</div>
+                        <div class="small text-muted">
+                            You hold <strong>@Model.Unsorted.Count</strong> · not in a resolvable collection
+                        </div>
+                    </div>
+                    <partial name="Partials/_AssetTable" model="Model.Unsorted" />
+                </div>
+            }
+
+            @* ── Editions: fungible, NOT BDOs ──────────────────────────────────────
+               A fungible NORMAL holding is one identity split into interchangeable
+               units — the amount is a balance, not a collection. Segregated so a BDO
+               is never misrepresented (RFC-PLUGIN-005 §5.4 / BDO-01 §3–§4). *@
+            @if (Model.Editions.Count > 0)
+            {
+                <div class="card border-warning mb-3">
+                    <div class="card-header">
+                        <div class="fw-semibold">Editions — fungible, not BDOs</div>
+                        <div class="small text-muted">
+                            Fungible assets held in this wallet (a shared identity split into interchangeable
+                            units). These are <strong>not</strong> Bitcoin Digital Objects — the amount is a
+                            <strong>balance</strong>, not a collection.
+                        </div>
+                    </div>
+                    <partial name="Partials/_AssetTable" model="Model.Editions" />
+                </div>
+            }
+        }
+
+    </div>
+</div>
+
+@* Store-scoped endpoints for wallet.js. The script reads these; it never builds
+   Store URLs itself. __TXID__ is substituted client-side with the actual txid. *@
+<div data-smv-wallet
+     data-send-endpoint="@Url.Action("Send", "SmvSend", new { storeId })"
+     data-send-status-endpoint="@Url.Action("SendStatus", "SmvSend", new { storeId, txid = "__TXID__" })">
+</div>
+
+@* Antiforgery (CSRF) token for the cookie-authenticated Send POST. wallet.js reads
+   this hidden input and sends it as the RequestVerificationToken header; without it
+   BTCPay rejects the POST before the controller with an empty body. *@
+@Html.AntiForgeryToken()
+
+<script src="~/plugins/smv/wallet.js"></script>
+<script src="~/plugins/smv/claim-link.js"></script>

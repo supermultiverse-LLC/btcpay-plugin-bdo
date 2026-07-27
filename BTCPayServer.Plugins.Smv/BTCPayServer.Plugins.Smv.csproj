@@ -1,0 +1,68 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <!--
+    INTENTIONAL: This project does NOT ProjectReference the BTCPayServer host
+    csproj. Instead it links against pinned, prebuilt BTCPay assemblies under
+    $(BtcpayLibDir). This guarantees CI never compiles the upstream host
+    (avoiding CS0104 in SSH/SSHSettings.cs and other SDK-interaction issues)
+    and keeps the btcpayserver/ submodule strictly untouched.
+
+    Track A only. No tapd / gRPC / Universe / Receive / macaroons / workers.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Product>Bitcoin Digital Objects</Product>
+    <Description>Issue, verify and manage Bitcoin Digital Objects (BDOs) from BTCPay Server.</Description>
+    <Version>0.17.3</Version>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PreserveCompilationContext>false</PreserveCompilationContext>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <!-- true so the one bundled NuGet dep (QRCoder) copies to output; host
+         assemblies are <Reference Private="false"> and are unaffected. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- BtcpayLibDir is provided by CI env var BTCPAY_LIB_DIR; fallback for local dev. -->
+    <BtcpayLibDir Condition="'$(BTCPAY_LIB_DIR)' != ''">$(BTCPAY_LIB_DIR)</BtcpayLibDir>
+    <BtcpayLibDir Condition="'$(BtcpayLibDir)' == ''">$(MSBuildThisFileDirectory)..\lib\btcpay\2.4.0</BtcpayLibDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Required by the Razor SDK and MVC views. This replaces the ASP.NET Core
+      framework references that were previously pulled transitively by the
+      BTCPayServer host ProjectReference, without compiling the host.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Host assemblies: link only, never copy to output, never publish. -->
+    <Reference Include="BTCPayServer">
+      <HintPath>$(BtcpayLibDir)\BTCPayServer.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BTCPayServer.Abstractions">
+      <HintPath>$(BtcpayLibDir)\BTCPayServer.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BTCPayServer.Client">
+      <HintPath>$(BtcpayLibDir)\BTCPayServer.Client.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BTCPayServer.Data">
+      <HintPath>$(BtcpayLibDir)\BTCPayServer.Data.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BTCPayServer.Common">
+      <HintPath>$(BtcpayLibDir)\BTCPayServer.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure isolated core stays as ProjectReference; it has no host coupling. -->
+    <ProjectReference Include="..\BTCPayServer.Plugins.Smv.Core\BTCPayServer.Plugins.Smv.Core.csproj" />
+    <EmbeddedResource Include="Resources\**" />
+    <!-- QR generation for the Hosted LN fee invoice. Self-contained (SvgQRCode is
+         pure text, no System.Drawing); not a host dependency, so it bundles cleanly. -->
+    <PackageReference Include="QRCoder" Version="1.4.3" />
+  </ItemGroup>
+</Project>

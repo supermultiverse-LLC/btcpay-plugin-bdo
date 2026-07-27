@@ -1,0 +1,13 @@
+Native Taproot Assets for BTCPay Server
+
+Copyright (c) 2026 Supermultiverse LLC
+
+This product includes software developed by Supermultiverse LLC.
+
+Licensed under the Apache License, Version 2.0.
+
+The SMV backend, wallet infrastructure, Studio platform, relay services and other proprietary Supermultiverse systems are not part of this repository and are not licensed under Apache 2.0.
+
+For more information visit:
+
+https://github.com/supermultiverse-LLC/btcpay-plugin-bdo

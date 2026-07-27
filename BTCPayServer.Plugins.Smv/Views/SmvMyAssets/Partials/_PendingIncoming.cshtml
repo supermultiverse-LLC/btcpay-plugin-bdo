@@ -1,0 +1,60 @@
+@model IReadOnlyList<BTCPayServer.Plugins.Smv.Services.Tapd.TapdReceiveEvent>
+
+@if (Model.Count > 0)
+{
+    <div class="card border-info mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Pending Incoming</strong>
+            <span class="badge bg-info text-dark">@Model.Count</span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                These Bitcoin Digital Objects have been detected by your BDO infrastructure but are still waiting for confirmation and/or proof delivery.
+            </p>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width:30%">BDO ID</th>
+                            <th style="width:10%">Amount</th>
+                            <th style="width:20%">Status</th>
+                            <th style="width:15%">Proof</th>
+                            <th style="width:25%">Outpoint</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr>
+                                <td>
+                                    <code class="text-break">@(item.AssetId ?? "-")</code>
+                                </td>
+                                <td>@(item.Amount ?? "-")</td>
+                                <td>
+                                    <span class="badge bg-warning text-dark">Detected</span>
+                                    <div class="small text-muted mt-1">
+                                        Height: @(item.ConfirmationHeight ?? "0")
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (item.HasProof)
+                                    {
+                                        <span class="badge bg-success">Proof received</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Waiting proof</span>
+                                    }
+                                </td>
+                                <td>
+                                    <code class="text-break small">@(item.Outpoint ?? "-")</code>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
