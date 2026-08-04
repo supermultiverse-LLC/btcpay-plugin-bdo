@@ -30,6 +30,11 @@ public static class StasMetadata
     /// <summary>Build the STAS-01 metadata field set. Insertion order is irrelevant —
     /// <see cref="Canonicalize"/> sorts keys. Omits optional fields per the rules
     /// (description/collection blank → omitted; supply==1 and divisibility==0 omitted).</summary>
+    /// <param name="assetType">What the object IS (RFC-PLUGIN-012). Anchored here
+    /// on purpose: this is the document the creator signs and the bytes that go
+    /// on-chain, so a ticket is a ticket by the issuer's own signature and not by
+    /// a database column someone could edit afterwards. Defaults to the value
+    /// this field has always carried, so existing hashes are unchanged.</param>
     public static Dictionary<string, object> Build(
         string name,
         string issuer,
@@ -37,7 +42,8 @@ public static class StasMetadata
         string? image = null,
         string? collection = null,
         IReadOnlyList<(string Trait, string Value)>? attributes = null,
-        string? externalUrl = null)
+        string? externalUrl = null,
+        string? assetType = null)
     {
         var m = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -45,7 +51,7 @@ public static class StasMetadata
             ["version"] = "1.0",
             ["name"] = name.Trim(),
             ["issuer"] = issuer.Trim(),
-            ["asset_type"] = "collectible",
+            ["asset_type"] = NormalizeAssetType(assetType),
         };
 
         if (!string.IsNullOrWhiteSpace(description)) m["description"] = description.Trim();
@@ -71,6 +77,22 @@ public static class StasMetadata
         }
 
         return m;
+    }
+
+    /// <summary>The kinds an object may declare, in the order they are offered.
+    /// Mirrors the backend's asset_kind enum — a value outside it is rejected at
+    /// the mint API, so the plugin must not invent one.</summary>
+    public static readonly IReadOnlyList<string> AssetTypes =
+        new[] { "collectible", "ticket", "membership", "redeemable" };
+
+    /// <summary>Unknown or blank input falls back to "collectible" rather than
+    /// throwing: an object that claims nothing is a collectible, which is the
+    /// safe reading — it is the only kind a scanner will not consume.</summary>
+    public static string NormalizeAssetType(string? assetType)
+    {
+        if (string.IsNullOrWhiteSpace(assetType)) return "collectible";
+        var v = assetType.Trim().ToLowerInvariant();
+        return AssetTypes.Contains(v) ? v : "collectible";
     }
 
     /// <summary>Canonical JSON string (sorted keys, NFC values, compact, JS escaping).</summary>

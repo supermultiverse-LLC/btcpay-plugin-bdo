@@ -240,19 +240,29 @@ public class SmvClaimController : Controller
         finally { http.Dispose(); }
     }
 
+    /// <summary>Active drops, scoped to ONE collection.
+    ///
+    /// The platform's list is account-wide. Rendering it inside a collection made
+    /// every drop look like it dispensed THAT collection's units — a merchant
+    /// opening Padel Test was greeted by a BTCPay Community Genesis drop. Legacy
+    /// campaigns that predate collection tagging stay visible rather than
+    /// vanishing from a screen the merchant has been using.</summary>
     [HttpGet("drops")]
     [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
-    public async Task<IActionResult> Drops(string storeId, CancellationToken ct)
+    public async Task<IActionResult> Drops(string storeId, string collectionId, CancellationToken ct)
     {
         var (http, error) = await BuildHttpAsync(storeId, ct);
         if (http is null) return Ok(new { connected = false, message = error });
         try
         {
             var list = await new ManagedWalletClient(http).ListCampaignsAsync(ct);
-            return Ok(new
+            var drops = new System.Collections.Generic.List<object>();
+            foreach (var c in list.Campaigns)
             {
-                connected = true,
-                drops = list.Campaigns.ConvertAll(c => new
+                if (!string.IsNullOrWhiteSpace(collectionId)
+                    && !string.IsNullOrWhiteSpace(c.CollectionId)
+                    && c.CollectionId != collectionId) continue;
+                drops.Add(new
                 {
                     campaignId = c.CampaignId,
                     name = c.Name,
@@ -260,9 +270,11 @@ public class SmvClaimController : Controller
                     total = c.Total,
                     claimed = c.Claimed,
                     collectionName = c.CollectionName,
+                    seriesName = c.SeriesName,
                     dropUrl = MerchantDropUrl(storeId, c.CampaignId)
-                })
-            });
+                });
+            }
+            return Ok(new { connected = true, drops });
         }
         catch (Exception ex)
         {

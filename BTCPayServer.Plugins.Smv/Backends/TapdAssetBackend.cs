@@ -382,6 +382,15 @@ public sealed class TapdAssetBackend : IAssetBackend
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("Collection-grouped listing is a Hosted feature; BYON groups client-side.");
 
+    public Task<IReadOnlyList<HeldGroup>> ListHeldGroupsAsync(
+        string collectionId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Collection-grouped listing is a Hosted feature; BYON groups client-side.");
+
+    public Task<HeldUnitsPage> ListHeldUnitsInGroupAsync(
+        string collectionId, string groupId, int? limit, string? cursor, string? q, string? sort,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("Collection-grouped listing is a Hosted feature; BYON groups client-side.");
+
     public void Dispose() => _httpClient.Dispose();
 }
 

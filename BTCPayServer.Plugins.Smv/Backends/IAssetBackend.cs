@@ -72,6 +72,19 @@ public interface IAssetBackend : System.IDisposable
         string collectionId, int? limit, string? cursor, string? q, string? sort,
         CancellationToken cancellationToken = default);
 
+    /// <summary>The same collection as GROUPS: one row per series, plus each BDO
+    /// minted alone as a group of one. Counted over everything held, not over a
+    /// page — a merchant acts on "9 of 10", so it must not come from whichever
+    /// 48 units happened to load. Hosted-only, like the two above.</summary>
+    Task<IReadOnlyList<HeldGroup>> ListHeldGroupsAsync(
+        string collectionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Units of ONE group. <paramref name="groupId"/> is a series id, or
+    /// "asset:{uuid}" for a BDO minted alone.</summary>
+    Task<HeldUnitsPage> ListHeldUnitsInGroupAsync(
+        string collectionId, string groupId, int? limit, string? cursor, string? q, string? sort,
+        CancellationToken cancellationToken = default);
+
     // ── Batch mint (RFC_BATCH_MINTING_V1, Modality 3 — the moat) ────────────────
 
     /// <summary>Submit a batch of N unique collectibles. Async: returns the aggregate LN

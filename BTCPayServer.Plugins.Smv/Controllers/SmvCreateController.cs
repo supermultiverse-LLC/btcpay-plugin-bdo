@@ -185,6 +185,10 @@ public class SmvCreateController : Controller
             Description = form.Description?.Trim() ?? "",
             AttributesText = form.AttributesText ?? "",
             ExternalReference = form.ExternalReference?.Trim() ?? "",
+            // Normalised, not trusted: a hand-crafted POST cannot smuggle a kind
+            // the backend would reject at the mint API (or worse, one it would
+            // accept and we did not mean).
+            AssetKind = StasMetadata.NormalizeAssetType(form.AssetKind),
             SignedEventJson = form.SignedEventJson  // BYON: the optional creator signature
         };
 
@@ -213,7 +217,10 @@ public class SmvCreateController : Controller
 
         // Best-effort quote so the cost preview survives a re-render on a validation
         // error, and to feed the pre-invoice fee cap below (reused, not re-fetched).
-        try { vm.Quote = await backend.MintQuoteAsync(new MintQuoteRequest(), cancellationToken); }
+        // Quote the kind actually being minted. Price does not vary by kind today,
+        // but the quote feeds the fee cap sent with the mint — quoting one thing
+        // and minting another is how that cap starts rejecting valid mints later.
+        try { vm.Quote = await backend.MintQuoteAsync(new MintQuoteRequest(AssetType: vm.AssetKind), cancellationToken); }
         catch { vm.QuoteUnavailable = true; }
 
         if (string.IsNullOrWhiteSpace(vm.AssetName))
@@ -251,7 +258,7 @@ public class SmvCreateController : Controller
                 return View("Index", vm);
             }
 
-            var metadata = BuildBdoMetadata(store, vm.AssetName, vm.ImageUrl, vm.Description, vm.AttributesText, vm.ExternalReference);
+            var metadata = BuildBdoMetadata(store, vm.AssetName, vm.ImageUrl, vm.Description, vm.AttributesText, vm.ExternalReference, vm.AssetKind);
             byonMetaHash = StasMetadata.MetadataHash(metadata);
             canonicalMeta = Encoding.UTF8.GetBytes(StasMetadata.Canonicalize(metadata));
 
@@ -275,7 +282,7 @@ public class SmvCreateController : Controller
         {
             // Reuse the estimate fetched above (a few seconds old is fine — the backend
             // re-computes and enforces the real fee against the cap at reservation, §7).
-            var quote = vm.Quote ?? await backend.MintQuoteAsync(new MintQuoteRequest(), cancellationToken);
+            var quote = vm.Quote ?? await backend.MintQuoteAsync(new MintQuoteRequest(AssetType: vm.AssetKind), cancellationToken);
             vm.Quote = quote;
 
             var request = new MintRequest(
@@ -289,6 +296,7 @@ public class SmvCreateController : Controller
                 Description: string.IsNullOrWhiteSpace(vm.Description) ? null : vm.Description,
                 Attributes: ParseAttributes(vm.AttributesText),
                 ExternalReference: string.IsNullOrWhiteSpace(vm.ExternalReference) ? null : vm.ExternalReference,
+                AssetType: vm.AssetKind,              // travels as asset_type; the API stores it as kind
                 CanonicalMetaBytes: canonicalMeta);   // BYON: mint the exact signed STAS-01 bytes
 
             vm.Result = await backend.MintAsync(request, cancellationToken);
@@ -489,7 +497,7 @@ public class SmvCreateController : Controller
         if (AttributesLineMismatch(req.AttributesText, out var badLine))
             return Json(new { ok = false, message = $"Attribute line \"{badLine}\" isn't valid — use one attribute per line as \"trait: value\"." });
 
-        var metadata = BuildBdoMetadata(store, req.AssetName, req.ImageUrl, req.Description, req.AttributesText, req.ExternalReference);
+        var metadata = BuildBdoMetadata(store, req.AssetName, req.ImageUrl, req.Description, req.AttributesText, req.ExternalReference, req.AssetKind);
         var hash = StasMetadata.MetadataHash(metadata);
 
         return Json(new { ok = true, metadata_hash = hash, issuer = IssuerFor(store) });
@@ -505,7 +513,7 @@ public class SmvCreateController : Controller
     // so there is no drift between what was signed and what is on-chain.
     private static Dictionary<string, object> BuildBdoMetadata(
         BTCPayServer.Data.StoreData store, string? name, string? imageUrl, string? description, string? attributesText,
-        string? externalReference = null)
+        string? externalReference = null, string? assetKind = null)
     {
         var attrs = (ParseAttributes(attributesText) ?? new List<MintAttribute>())
             .Select(a => (a.TraitType, a.Value)).ToList();
@@ -518,7 +526,10 @@ public class SmvCreateController : Controller
             // BYON enrichment fix: the form's external reference was silently dropped
             // from the minted metadata — Build validates it to http(s) and emits
             // external_url per STAS-01.
-            externalUrl: string.IsNullOrWhiteSpace(externalReference) ? null : externalReference.Trim());
+            externalUrl: string.IsNullOrWhiteSpace(externalReference) ? null : externalReference.Trim(),
+            // Inside the signed document, so the creator's signature covers what
+            // the object claims to be — not just what it is called.
+            assetType: assetKind);
     }
 
     // The metadata_hash the creator committed to, read from the signed event's tags
@@ -726,6 +737,11 @@ public class SmvCreateVm
     public string AttributesText { get; set; } = "";
     public string ExternalReference { get; set; } = "";
 
+    /// <summary>What the object IS (RFC-PLUGIN-012). Governs what a scanner does
+    /// with it at a door: only "collectible" survives a scan, the rest are spent
+    /// by one. Blank/unknown normalises to "collectible".</summary>
+    public string AssetKind { get; set; } = "collectible";
+
     /// <summary>The inline LN fee invoice returned by the mint (contract §5.2); null until minted.</summary>
     public MintResult? Result { get; set; }
 
@@ -744,6 +760,11 @@ public sealed class ByonPrepareRequest
     public string? Description { get; set; }
     public string? AttributesText { get; set; }
     public string? ExternalReference { get; set; }
+
+    /// <summary>Must travel with the prepare call: it is part of the canonical
+    /// document, so signing without it would produce a hash that no longer
+    /// matches the bytes actually minted.</summary>
+    public string? AssetKind { get; set; }
 }
 
 /// <summary>A NIP-07-signed Nostr event (window.nostr.signEvent output).</summary>

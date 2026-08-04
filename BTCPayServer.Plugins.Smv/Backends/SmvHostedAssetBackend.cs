@@ -478,6 +478,41 @@ public sealed class SmvHostedAssetBackend : IAssetBackend
             Name: u.Name,
             ImageUrl: u.ImageUrl,
             BatchIndex: u.BatchIndex,
+            SeriesId: u.SeriesId,
+            SeriesName: u.SeriesName,
+            AcquiredAt: u.AcquiredAt)).ToList();
+        return new HeldUnitsPage(units, resp.NextCursor);
+    }
+
+    public async Task<IReadOnlyList<HeldGroup>> ListHeldGroupsAsync(
+        string collectionId, CancellationToken cancellationToken = default)
+    {
+        var resp = await _client.ListHeldGroupsAsync(collectionId, cancellationToken);
+        return resp.Groups
+            .Where(g => !string.IsNullOrWhiteSpace(g.GroupId))
+            .Select(g => new HeldGroup(
+                GroupId: g.GroupId!,
+                Name: string.IsNullOrWhiteSpace(g.Name) ? "Untitled" : g.Name!,
+                Held: g.Held,
+                Total: g.Total,
+                ImageUrl: g.ImageUrl))
+            .ToList();
+    }
+
+    public async Task<HeldUnitsPage> ListHeldUnitsInGroupAsync(
+        string collectionId, string groupId, int? limit, string? cursor, string? q, string? sort,
+        CancellationToken cancellationToken = default)
+    {
+        var resp = await _client.ListHoldingsUnitsAsync(
+            collectionId, limit, cursor, q, sort, groupId, cancellationToken);
+        var units = resp.Items.Select(u => new HeldUnit(
+            Id: u.Id,
+            AssetId: u.AssetId,
+            Name: u.Name,
+            ImageUrl: u.ImageUrl,
+            BatchIndex: u.BatchIndex,
+            SeriesId: u.SeriesId,
+            SeriesName: u.SeriesName,
             AcquiredAt: u.AcquiredAt)).ToList();
         return new HeldUnitsPage(units, resp.NextCursor);
     }

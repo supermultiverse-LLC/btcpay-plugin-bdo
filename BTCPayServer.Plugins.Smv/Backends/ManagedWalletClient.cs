@@ -213,6 +213,13 @@ public sealed class ManagedWalletClient
     /// (§7 R2/R4). <paramref name="cursor"/> is the opaque acquired_at marker from the prior page.</summary>
     public Task<ManagedHoldingsUnitsResponse> ListHoldingsUnitsAsync(
         string collectionId, int? limit, string? cursor, string? q, string? sort, CancellationToken ct = default)
+        => ListHoldingsUnitsAsync(collectionId, limit, cursor, q, sort, null, ct);
+
+    /// <summary>As above, optionally narrowed to ONE group — a series uuid, or
+    /// "asset:{uuid}" for a BDO minted alone.</summary>
+    public Task<ManagedHoldingsUnitsResponse> ListHoldingsUnitsAsync(
+        string collectionId, int? limit, string? cursor, string? q, string? sort,
+        string? groupId, CancellationToken ct = default)
     {
         var url = new StringBuilder("managed-wallet-holdings-units?collection_id=");
         url.Append(Uri.EscapeDataString(collectionId));
@@ -220,8 +227,77 @@ public sealed class ManagedWalletClient
         if (!string.IsNullOrEmpty(cursor)) url.Append("&cursor=").Append(Uri.EscapeDataString(cursor));
         if (!string.IsNullOrEmpty(q)) url.Append("&q=").Append(Uri.EscapeDataString(q));
         if (!string.IsNullOrEmpty(sort)) url.Append("&sort=").Append(Uri.EscapeDataString(sort));
+        if (!string.IsNullOrEmpty(groupId)) url.Append("&group_id=").Append(Uri.EscapeDataString(groupId));
         return GetAsync<ManagedHoldingsUnitsResponse>(url.ToString(), ct);
     }
+
+    /// <summary>GET the same collection as GROUPS — one row per series, plus each
+    /// BDO minted alone. Counted over everything held, not over a page.</summary>
+    public Task<ManagedHeldGroupsResponse> ListHeldGroupsAsync(string collectionId, CancellationToken ct = default)
+        => GetAsync<ManagedHeldGroupsResponse>(
+            "managed-wallet-holdings-units?groups=1&collection_id=" + Uri.EscapeDataString(collectionId), ct);
+
+    // ── Event check-in (RFC-INTEGRATION-002 §5, RFC-PLUGIN-013 F4) ────────────
+    // The plugin manages events and their ticket types. The door scan is NOT here:
+    // an integrator runs their own scanner against the API, and a merchant-facing
+    // camera scanner is a separate slice with its own problems.
+
+    /// <summary>GET /managed-wallet-checkin?events=1 — this account's events.</summary>
+    public Task<ManagedCheckinEventsResponse> ListCheckinEventsAsync(CancellationToken ct = default)
+        => GetAsync<ManagedCheckinEventsResponse>("managed-wallet-checkin?events=1", ct);
+
+    /// <summary>GET one event's live counters.</summary>
+    public Task<ManagedCheckinEventResponse> GetCheckinEventAsync(string eventId, CancellationToken ct = default)
+        => GetAsync<ManagedCheckinEventResponse>(
+            "managed-wallet-checkin?event_id=" + Uri.EscapeDataString(eventId), ct);
+
+    /// <summary>GET this event's ticket types AND the series still free to become one.
+    /// Both in a single call — the filter of what is selectable lives server-side so
+    /// the two never disagree about which series are already spoken for.</summary>
+    public Task<ManagedTicketTypesResponse> ListTicketTypesAsync(string eventId, CancellationToken ct = default)
+        => GetAsync<ManagedTicketTypesResponse>(
+            "managed-wallet-checkin?ticket_types=1&event_id=" + Uri.EscapeDataString(eventId), ct);
+
+    public Task<ManagedEventCreated> CreateCheckinEventAsync(
+        string name, string collectionId, CancellationToken ct = default)
+        => PostJsonAsync<ManagedEventCreated>("managed-wallet-checkin",
+            new { event_create = new { name, collection_id = collectionId } }, null, ct);
+
+    public Task<JsonElement> CloseCheckinEventAsync(string eventId, CancellationToken ct = default)
+        => PostJsonAsync<JsonElement>("managed-wallet-checkin", new { event_close = eventId }, null, ct);
+
+    /// <summary>Declare a group as one of the event's ticket types. groupId is a
+    /// series uuid, or "asset:{uuid}" for a BDO minted on its own — which is a
+    /// group of one, not a member of a "singles" bucket.</summary>
+    public Task<ManagedTicketTypeCreated> AddTicketTypeAsync(
+        string eventId, string groupId, string? label, CancellationToken ct = default)
+        => PostJsonAsync<ManagedTicketTypeCreated>("managed-wallet-checkin",
+            new { ticket_type_add = new { event_id = eventId, group_id = groupId, label } }, null, ct);
+
+    public Task<JsonElement> RemoveTicketTypeAsync(string ticketTypeId, CancellationToken ct = default)
+        => PostJsonAsync<JsonElement>("managed-wallet-checkin",
+            new { ticket_type_remove = ticketTypeId }, null, ct);
+
+    // ── Organisers (RFC-PLUGIN-012 P3) ─────────────────────────────────────
+    // Who besides the issuer may run this collection's doors. All three are
+    // issuer-only at the platform: a grantee works the door and cannot pass
+    // that on, nor see who else holds a grant.
+
+    public Task<ManagedOrganizersResponse> ListOrganizersAsync(string collectionId, CancellationToken ct = default)
+        => GetAsync<ManagedOrganizersResponse>(
+            "managed-wallet-checkin?organizers=1&collection_id=" + Uri.EscapeDataString(collectionId), ct);
+
+    /// <summary>Grant by the email the person signs in with — the platform
+    /// resolves it to an account, and answers user_not_found if there is none
+    /// yet, which is something the issuer can act on.</summary>
+    public Task<ManagedOrganizerGranted> GrantOrganizerAsync(
+        string collectionId, string email, CancellationToken ct = default)
+        => PostJsonAsync<ManagedOrganizerGranted>("managed-wallet-checkin",
+            new { organizer_grant = new { collection_id = collectionId, email } }, null, ct);
+
+    public Task<JsonElement> RevokeOrganizerAsync(string grantId, CancellationToken ct = default)
+        => PostJsonAsync<JsonElement>("managed-wallet-checkin",
+            new { organizer_revoke = grantId }, null, ct);
 
     // Shared POST helper: serialize the body, attach an optional Idempotency-Key,
     // and parse the JSON response (or the §3.3/§6 error envelope). Mirrors the

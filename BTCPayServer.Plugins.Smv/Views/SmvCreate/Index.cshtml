@@ -311,6 +311,33 @@ else
                    placeholder="e.g. Bitconia Access Pass #001" />
         </div>
 
+        @* RFC-PLUGIN-012. Until now the plugin never said what it was minting, so
+           every BDO it issued landed as a collectible — and a collectible is the
+           one kind a scanner does NOT consume, which meant a "ticket" minted here
+           admitted the same person all night. The wording below is about the door,
+           because that is the only place the choice has consequences. *@
+        <div class="form-group mb-3">
+            <label for="AssetKind">Type</label>
+            <select id="AssetKind" name="AssetKind" class="form-select">
+                <option value="collectible" selected="@(Model.AssetKind == "collectible")">
+                    Collectible — keepsake. A scan stamps it; it stays valid forever.
+                </option>
+                <option value="ticket" selected="@(Model.AssetKind == "ticket")">
+                    Ticket — one admission. The first scan uses it up.
+                </option>
+                <option value="membership" selected="@(Model.AssetKind == "membership")">
+                    Membership — admits its holder, and cannot be transferred away.
+                </option>
+                <option value="redeemable" selected="@(Model.AssetKind == "redeemable")">
+                    Redeemable — a voucher. Scanning redeems it once.
+                </option>
+            </select>
+            <small class="form-text text-muted">
+                This is written into the signed object itself, so it cannot be changed afterwards.
+                If in doubt, leave it as a collectible.
+            </small>
+        </div>
+
         <div class="form-group mb-3">
             <label for="ImageUrl">Image <span class="text-danger">*</span></label>
             @if (Model.CanUploadImage)

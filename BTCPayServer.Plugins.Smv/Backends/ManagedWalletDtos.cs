@@ -168,6 +168,13 @@ public sealed class ManagedCampaign
     [JsonPropertyName("asset_image_url")] public string? AssetImageUrl { get; set; }
     [JsonPropertyName("collection_name")] public string? CollectionName { get; set; }
     [JsonPropertyName("issuer_name")] public string? IssuerName { get; set; }
+    // Which collection the drop dispenses from. The API list is account-wide, so
+    // without this a drop shown inside a collection reads as "these units are in
+    // my drop" when they belong to a different collection entirely.
+    [JsonPropertyName("collection_id")] public string? CollectionId { get; set; }
+    // Derived server-side from the drop's own units: one series, or null when the
+    // drop mixes series or hands out one-off mints.
+    [JsonPropertyName("series_name")] public string? SeriesName { get; set; }
 }
 
 /// <summary>GET ?campaigns=1 — the caller's active drops.</summary>

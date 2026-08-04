@@ -45,6 +45,28 @@ public sealed class ManagedHoldingUnit
     [JsonPropertyName("asset_id")] public string? AssetId { get; set; }   // tapd 64-hex → Send; null in the pre-anchor window
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("image_url")] public string? ImageUrl { get; set; }
-    [JsonPropertyName("batch_index")] public int? BatchIndex { get; set; } // null for Modality 1/2 (null-for-legacy)
+    [JsonPropertyName("batch_index")] public int? BatchIndex { get; set; } // position within its series; null when minted alone
+    // RFC-PLUGIN-013: the series this unit came from, so a drop can be scoped to
+    // one of them. Both null for a one-off mint — a real category, not a gap.
+    [JsonPropertyName("series_id")] public string? SeriesId { get; set; }
+    [JsonPropertyName("series_name")] public string? SeriesName { get; set; }
     [JsonPropertyName("acquired_at")] public string? AcquiredAt { get; set; }
+}
+
+/// <summary>A collection seen as GROUPS: one row per series, plus each BDO
+/// minted alone as a group of one. Counts cover every unit held, not a page.</summary>
+public sealed class ManagedHeldGroup
+{
+    // A series uuid, or "asset:{uuid}" for a BDO minted on its own.
+    [JsonPropertyName("group_id")] public string? GroupId { get; set; }
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("held")] public long Held { get; set; }
+    /// <summary>The series' minted size. Held below it means some have gone out.</summary>
+    [JsonPropertyName("total")] public int Total { get; set; }
+    [JsonPropertyName("image_url")] public string? ImageUrl { get; set; }
+}
+
+public sealed class ManagedHeldGroupsResponse
+{
+    [JsonPropertyName("groups")] public List<ManagedHeldGroup> Groups { get; set; } = new();
 }

@@ -160,8 +160,13 @@ public class SmvMyAssetsController : Controller
 
     // My BDOs Level 2 (RFC-PLUGIN-005 Phase 2): a single collection's held units,
     // cursor-paginated + searchable. Hosted-only (BYON groups client-side on Index).
+    // Series-first (RFC-PLUGIN-013 parity): a collection opens as its GROUPS —
+    // one row per series, plus each BDO minted alone. Pouring 500 units of one
+    // series into a flat table told the merchant nothing they could act on and
+    // buried the objects that were actually different from each other.
+    // groupId drills into one group; the unit table is unchanged inside it.
     [HttpGet("collection/{collectionId}")]
-    public async Task<IActionResult> Collection(string collectionId, string? cursor, string? q, CancellationToken cancellationToken)
+    public async Task<IActionResult> Collection(string collectionId, string? cursor, string? q, string? groupId, CancellationToken cancellationToken)
     {
         var store = HttpContext.GetStoreDataOrNull();
         if (store is null)
@@ -178,7 +183,12 @@ public class SmvMyAssetsController : Controller
         ViewData["IsCustodial"] = true;
         ViewData["CanSend"] = settings?.HasGrantedScope("assets:send") != false;
 
-        var vm = new SmvCollectionDetailViewModel { CollectionId = collectionId, Query = q };
+        var vm = new SmvCollectionDetailViewModel
+        {
+            CollectionId = collectionId,
+            Query = q,
+            GroupId = string.IsNullOrWhiteSpace(groupId) ? null : groupId.Trim()
+        };
 
         try
         {
@@ -192,13 +202,47 @@ public class SmvMyAssetsController : Controller
             vm.OwnedCount = meta.OwnedCount;
             vm.CollectionSize = meta.CollectionSize;
 
-            var page = await backend.ListHeldUnitsAsync(
-                collectionId, limit: 48, cursor: cursor,
-                q: string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
-                sort: "acquired_at_desc", cancellationToken);
-            vm.Units = page.Items;
-            vm.NextCursor = page.NextCursor;
-            vm.EnrichedRows = await EnrichUnitsAsync(page.Items, cancellationToken);
+            // Groups always: the drop and check-in panels below need every unit
+            // of the collection to offer a series, not just the ones on this
+            // page — and the header count comes from here too.
+            vm.Groups = await backend.ListHeldGroupsAsync(collectionId, cancellationToken);
+            if (vm.GroupId is string g)
+            {
+                vm.GroupName = vm.Groups.FirstOrDefault(x =>
+                    string.Equals(x.GroupId, g, StringComparison.Ordinal))?.Name;
+                // An unknown group id would otherwise render an empty table with
+                // no explanation — say the group is gone and offer the way back.
+                if (vm.GroupName is null)
+                    vm.Error = "That series is no longer in this collection.";
+            }
+
+            // A search cuts across groups: the merchant is looking for a BDO, not
+            // for where it lives, so results come back as units either way.
+            var searching = !string.IsNullOrWhiteSpace(q);
+            if (vm.GroupId is not null || searching)
+            {
+                var page = vm.GroupId is string gid && !searching
+                    ? await backend.ListHeldUnitsInGroupAsync(
+                        collectionId, gid, limit: 48, cursor: cursor, q: null,
+                        sort: "acquired_at_desc", cancellationToken)
+                    : await backend.ListHeldUnitsAsync(
+                        collectionId, limit: 48, cursor: cursor,
+                        q: searching ? q!.Trim() : null,
+                        sort: "acquired_at_desc", cancellationToken);
+                vm.Units = page.Items;
+                vm.NextCursor = page.NextCursor;
+                vm.EnrichedRows = await EnrichUnitsAsync(page.Items, cancellationToken);
+            }
+            else
+            {
+                // Groups view: the drop panel still needs the unit ids, and it
+                // reads them from Model.ReadyUnits. One page is enough for the
+                // panels; the table itself is not rendered here.
+                var page = await backend.ListHeldUnitsAsync(
+                    collectionId, limit: 200, cursor: null, q: null,
+                    sort: "acquired_at_desc", cancellationToken);
+                vm.Units = page.Items;
+            }
         }
         catch (Exception ex)
         {

@@ -231,13 +231,29 @@ public sealed record HeldUnit(
     string? AssetId,     // tapd 64-hex — Send + BDO ID display; null pre-anchor
     string? Name,
     string? ImageUrl,
-    int? BatchIndex,     // null for Modality 1/2
+    int? BatchIndex,     // position within its series; null when minted alone
+    string? SeriesId,    // RFC-PLUGIN-013: the series it came from; null = one-off
+    string? SeriesName,  // what the issuer calls that series
     string? AcquiredAt);
 
 /// <summary>A page of held units + the opaque cursor for the next page (null = last page).</summary>
 public sealed record HeldUnitsPage(
     IReadOnlyList<HeldUnit> Items,
     string? NextCursor);
+
+/// <summary>A collection seen as groups: one series, or one BDO minted alone —
+/// which is a group of one, not a member of a "singles" bucket (RFC-PLUGIN-013
+/// revoked that: two unrelated objects in one row is how a drop ships the wrong
+/// thing). Held below Total means some units have gone out.</summary>
+public sealed record HeldGroup(
+    string GroupId,      // series id, or "asset:{uuid}" for a BDO minted alone
+    string Name,
+    long Held,
+    int Total,
+    string? ImageUrl)
+{
+    public bool IsSeries => !GroupId.StartsWith("asset:", StringComparison.Ordinal);
+}
 
 // ── Batch mint (RFC_BATCH_MINTING_V1, Modality 3 — the moat) ────────────────────
 // N unique collectibles anchored in ~1 tx. Mirrors the single-mint DTOs with a

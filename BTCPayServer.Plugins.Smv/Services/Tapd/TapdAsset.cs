@@ -131,6 +131,15 @@ public sealed class SmvCollectionDetailViewModel
     public string? Query { get; set; }        // current search term (q)
     public string? Error { get; set; }
 
+    // RFC-PLUGIN-013 parity: the collection as groups — one row per series, plus
+    // each BDO minted alone. This is what the page opens on; the unit table is
+    // what you get after picking one (or after a search, which cuts across all
+    // of them because the merchant is hunting a BDO, not a location).
+    public IReadOnlyList<HeldGroup> Groups { get; set; } = Array.Empty<HeldGroup>();
+    public string? GroupId { get; set; }      // the group being viewed; null = the group list
+    public string? GroupName { get; set; }    // its name, for the heading and the way back
+    public bool ShowingUnits => GroupId is not null || !string.IsNullOrWhiteSpace(Query);
+
     // Units with a tapd asset_id are sendable/renderable now; those without are in the
     // pre-anchor window (batch M3) → shown as a "confirming" note. LINQ in C#, not Razor.
     public IReadOnlyList<HeldUnit> ReadyUnits =>

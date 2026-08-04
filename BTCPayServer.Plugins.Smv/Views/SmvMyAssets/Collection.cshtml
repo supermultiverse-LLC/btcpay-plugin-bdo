@@ -11,14 +11,32 @@
     var readyRows = Model.EnrichedRows ?? BackendViewAdapters.ToTapdAssets(Model.ReadyUnits);
     var pending = Model.PendingCount;
 
-    // Unit ids for the drop panel (plain loop — LINQ here trips Razor overload
-    // resolution into an unreferenced EF assembly).
+    // Everything the drop panel needs, built in ONE pass so the four lists are
+    // guaranteed to line up by position. They were two passes over two different
+    // collections — readyRows (which may be the enrichment pass) and ReadyUnits —
+    // and any divergence between those would have silently paired a unit id with
+    // somebody else's series. Plain loop: LINQ here trips Razor overload
+    // resolution into an unreferenced EF assembly.
+    //
+    // Names travel base64: they are issuer-typed text, and a quote in one must
+    // not be able to break the markup.
     var dropIdList = new System.Collections.Generic.List<string>();
-    foreach (var r in readyRows)
+    var seriesIdList = new System.Collections.Generic.List<string>();
+    var seriesNameList = new System.Collections.Generic.List<string>();
+    var unitNameList = new System.Collections.Generic.List<string>();
+    foreach (var u in Model.ReadyUnits)
     {
-        if (!string.IsNullOrWhiteSpace(r.AssetId)) dropIdList.Add(r.AssetId!);
+        if (string.IsNullOrWhiteSpace(u.AssetId)) continue;
+        dropIdList.Add(u.AssetId!);
+        seriesIdList.Add(u.SeriesId ?? "");
+        seriesNameList.Add(System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(u.SeriesName ?? "")));
+        // A BDO minted on its own is labelled by its own name — a group of one.
+        unitNameList.Add(System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(u.Name ?? "")));
     }
     var dropUnitIds = string.Join(",", dropIdList);
+    var dropUnitSeries = string.Join(",", seriesIdList);
+    var dropUnitSeriesNames = string.Join(",", seriesNameList);
+    var dropUnitNames = string.Join(",", unitNameList);
 }
 
 <h2 class="mb-3">@(Model.Name ?? "Collection")</h2>
@@ -72,7 +90,10 @@
     </div>
 }
 
-@if (ViewData["IsCustodial"] is true && readyRows.Count > 0)
+@* Only on the collection view. Inside one series the page holds that series'
+   units alone, so a drop selector built from them would silently offer a choice
+   of one — these panels belong where the whole collection is in scope. *@
+@if (ViewData["IsCustodial"] is true && !Model.ShowingUnits && readyRows.Count > 0)
 {
     @* Drops (RFC-PLUGIN-010): one URL/QR that dispenses units of this
        collection first come, first served — the live-event feature. Unit ids
@@ -82,7 +103,11 @@
          data-url-list="@Url.Action("Drops", "SmvClaim", new { storeId })"
          data-url-cancel="@Url.Action("DropCancel", "SmvClaim", new { storeId })"
          data-collection-name="@Model.Name"
-         data-unit-ids="@dropUnitIds">
+         data-collection-id="@Model.CollectionId"
+         data-unit-ids="@dropUnitIds"
+         data-unit-series="@dropUnitSeries"
+         data-unit-series-names="@dropUnitSeriesNames"
+         data-unit-names="@dropUnitNames">
         <div class="card-body">
             <h5 class="card-title mb-1">Drop link <span class="text-muted small">— one QR, first come first served</span></h5>
             <p class="small text-muted mb-2">
@@ -90,7 +115,14 @@
                 own unit with just an email — one per person, until the drop runs out.
             </p>
             <div data-drop-list class="mb-2"></div>
+            @* placeholder anchor — the check-in card is rendered below this one *@
             <div class="d-flex gap-2 align-items-end flex-wrap" data-drop-create-form>
+                @* Only rendered by drops.js when this collection holds more than
+                   one group — a single-series collection gets no extra choice. *@
+                <div data-drop-series-wrap class="d-none">
+                    <label class="form-label small mb-1">Series</label>
+                    <select class="form-select form-select-sm" style="min-width:12rem;" data-drop-series></select>
+                </div>
                 <div>
                     <label class="form-label small mb-1">Units</label>
                     <input type="number" class="form-control form-control-sm" style="width:6rem;"
@@ -113,33 +145,164 @@
             <p class="text-danger small d-none mt-2" data-drop-error></p>
         </div>
     </div>
+
+    @* Event check-in (RFC-INTEGRATION-002, RFC-PLUGIN-013 F4). The API behind
+       this was built and certified while the plugin had no surface for it at
+       all — this is that surface. A ticket type IS a series; an event with none
+       declared admits nobody, and the card says so rather than leaving it to be
+       discovered at the door. *@
+    <div class="card mb-3" data-checkin-section
+         data-url-events="@Url.Action("Events", "SmvCheckin", new { storeId })"
+         data-url-event-create="@Url.Action("EventCreate", "SmvCheckin", new { storeId })"
+         data-url-event-close="@Url.Action("EventClose", "SmvCheckin", new { storeId })"
+         data-url-types="@Url.Action("TicketTypes", "SmvCheckin", new { storeId })"
+         data-url-type-add="@Url.Action("TicketTypeAdd", "SmvCheckin", new { storeId })"
+         data-url-type-remove="@Url.Action("TicketTypeRemove", "SmvCheckin", new { storeId })"
+         data-collection-id="@Model.CollectionId"
+         data-collection-name="@Model.Name">
+        <div class="card-body">
+            <h5 class="card-title mb-1">Event check-in <span class="text-muted small">— tickets at the door</span></h5>
+            <p class="small text-muted mb-2">
+                Create an event and say which of this collection's series are its
+                ticket types. Holders get an access QR on their BDO; your scanner
+                verifies it against current ownership, one admission per ticket.
+            </p>
+            <div data-checkin-list class="mb-2"></div>
+            <div class="d-flex gap-2 align-items-end flex-wrap">
+                <div class="flex-grow-1" style="max-width:20rem;">
+                    <label class="form-label small mb-1">Event name</label>
+                    <input type="text" class="form-control form-control-sm" data-checkin-name
+                           value="@Model.Name" maxlength="120" />
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" data-checkin-create>Create event</button>
+            </div>
+            <p class="text-danger small d-none mt-2" data-checkin-error></p>
+        </div>
+    </div>
+
+    @* Organisers (RFC-PLUGIN-012 P3). The grant existed on the platform but had
+       no surface here at all, so an issuer running their business from BTCPay
+       could not hand a door to their own staff — they had to go to the web app.
+       The card hides itself when the account is not this collection's issuer:
+       a grantee can work the door but not see or change who else holds one. *@
+    <div class="card mb-3 d-none" data-organizers-section
+         data-url-list="@Url.Action("Organizers", "SmvCheckin", new { storeId })"
+         data-url-grant="@Url.Action("OrganizerGrant", "SmvCheckin", new { storeId })"
+         data-url-revoke="@Url.Action("OrganizerRevoke", "SmvCheckin", new { storeId })"
+         data-collection-id="@Model.CollectionId">
+        <div class="card-body">
+            <h5 class="card-title mb-1">Organisers <span class="text-muted small">— who else can run your door</span></h5>
+            <p class="small text-muted mb-2">
+                Add someone by the email they sign in with and they can run this
+                collection's events: create them, set ticket types, scan at the
+                door, close them. They never see your holders' email addresses,
+                and they can't add anyone else. Remove them and it stops at once.
+            </p>
+            <div data-organizers-list class="mb-2"></div>
+            <div class="d-flex gap-2 align-items-end flex-wrap">
+                <div class="flex-grow-1" style="max-width:22rem;">
+                    <label class="form-label small mb-1">Their email</label>
+                    <input type="email" class="form-control form-control-sm" data-organizer-email
+                           placeholder="doorstaff@example.com" maxlength="254" />
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" data-organizer-add>Add organiser</button>
+            </div>
+            <p class="text-danger small d-none mt-2" data-organizer-error></p>
+        </div>
+    </div>
 }
 
-@if (readyRows.Count == 0)
+@if (!Model.ShowingUnits)
 {
-    @if (pending == 0)
+    @* Groups (RFC-PLUGIN-013 parity). A collection of 500 identical units was
+       rendering 500 rows, which told the merchant nothing and buried the
+       objects that genuinely differ. One row per series; a BDO minted alone is
+       its own group of one, not a member of a "singles" bucket. *@
+    @if (Model.Groups.Count == 0)
     {
-        <div class="text-muted">
-            No BDOs@(string.IsNullOrWhiteSpace(Model.Query) ? " in this collection yet." : " match your search.")
+        @if (pending == 0)
+        {
+            <div class="text-muted">No BDOs in this collection yet.</div>
+        }
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var g in Model.Groups)
+            {
+                <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                   asp-action="Collection" asp-route-storeId="@storeId"
+                   asp-route-collectionId="@Model.CollectionId" asp-route-groupId="@g.GroupId">
+                    <span class="rounded bg-secondary d-inline-flex align-items-center justify-content-center flex-shrink-0 position-relative overflow-hidden"
+                          style="width:40px;height:40px;font-size:0.65rem;">
+                        <span style="opacity:.6;">BDO</span>
+                        @if (!string.IsNullOrWhiteSpace(g.ImageUrl))
+                        {
+                            <img src="@g.ImageUrl" alt="" data-asset-thumb
+                                 class="position-absolute top-0 start-0 w-100 h-100" style="object-fit:cover;" />
+                        }
+                    </span>
+                    <span class="flex-grow-1">
+                        <span class="d-block">@g.Name</span>
+                        <span class="small text-muted">
+                            @if (g.IsSeries)
+                            {
+                                @* Held below the minted size is the normal state once
+                                   units start going out — say both numbers rather than
+                                   one that looks like a shortfall. *@
+                                <text>Series · you hold @g.Held of @g.Total</text>
+                            }
+                            else
+                            {
+                                <text>Minted on its own</text>
+                            }
+                        </span>
+                    </span>
+                    <span class="text-muted">→</span>
+                </a>
+            }
         </div>
     }
 }
 else
 {
-    <div class="card">
-        <partial name="Partials/_AssetTable" model="readyRows" />
-    </div>
-}
-
-@if (!string.IsNullOrWhiteSpace(Model.NextCursor))
-{
-    <div class="mt-3">
-        <a class="btn btn-outline-primary"
-           asp-action="Collection" asp-route-storeId="@storeId" asp-route-collectionId="@Model.CollectionId"
-           asp-route-q="@Model.Query" asp-route-cursor="@Model.NextCursor">
-            Next →
+    <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary btn-sm"
+           asp-action="Collection" asp-route-storeId="@storeId" asp-route-collectionId="@Model.CollectionId">
+            ← All series
         </a>
+        @if (Model.GroupName is string gname)
+        {
+            <span class="fw-semibold">@gname</span>
+        }
     </div>
+
+    @if (readyRows.Count == 0)
+    {
+        @if (pending == 0)
+        {
+            <div class="text-muted">
+                No BDOs@(string.IsNullOrWhiteSpace(Model.Query) ? " in this series yet." : " match your search.")
+            </div>
+        }
+    }
+    else
+    {
+        <div class="card">
+            <partial name="Partials/_AssetTable" model="readyRows" />
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Model.NextCursor))
+    {
+        <div class="mt-3">
+            <a class="btn btn-outline-primary"
+               asp-action="Collection" asp-route-storeId="@storeId" asp-route-collectionId="@Model.CollectionId"
+               asp-route-q="@Model.Query" asp-route-groupId="@Model.GroupId" asp-route-cursor="@Model.NextCursor">
+                Next →
+            </a>
+        </div>
+    }
 }
 
 @* Store-scoped Send wiring for wallet.js (same contract as My BDOs). *@
@@ -151,3 +314,5 @@ else
 <script src="~/plugins/smv/wallet.js"></script>
 <script src="~/plugins/smv/claim-link.js"></script>
 <script src="~/plugins/smv/drops.js"></script>
+<script src="~/plugins/smv/checkin.js"></script>
+<script src="~/plugins/smv/organizers.js"></script>

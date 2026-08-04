@@ -1587,7 +1587,10 @@ if (depth !== null && depth !== undefined) {
       ImageUrl: (form.querySelector("#ImageUrl") || {}).value || "",
       Description: (form.querySelector("#Description") || {}).value || "",
       AttributesText: (form.querySelector("#AttributesText") || {}).value || "",
-      ExternalReference: (form.querySelector("#ExternalReference") || {}).value || ""
+      ExternalReference: (form.querySelector("#ExternalReference") || {}).value || "",
+      // Part of the canonical document: omit it and the creator signs a hash
+      // over "collectible" while the mint writes the kind they actually picked.
+      AssetKind: (form.querySelector("#AssetKind") || {}).value || ""
     };
 
     // 1. Prepare — the server computes the canonical STAS-01 metadata_hash.
@@ -1768,6 +1771,78 @@ if (depth !== null && depth !== undefined) {
   var unitIds = (section.getAttribute("data-unit-ids") || "").split(",").filter(Boolean);
   var listBox = section.querySelector("[data-drop-list]");
 
+  // ── Series (RFC-PLUGIN-013 F4) ────────────────────────────────────────────
+  // A drop used to take "the first N of everything you hold in this collection",
+  // which silently mixed series once a collection held more than one. The three
+  // attributes are positional: unitIds[i] belongs to series unitSeries[i], named
+  // unitSeriesNames[i]. Names arrive base64 so a quote in an issuer-typed name
+  // cannot break the markup.
+  var unitSeries = (section.getAttribute("data-unit-series") || "").split(",");
+  var unitSeriesNamesRaw = (section.getAttribute("data-unit-series-names") || "").split(",");
+  function b64(s) {
+    try { return decodeURIComponent(escape(window.atob(s || ""))); } catch (e) { return ""; }
+  }
+  var seriesSelect = section.querySelector("[data-drop-series]");
+  var seriesWrap = section.querySelector("[data-drop-series-wrap]");
+
+  // One group per SERIES, plus one per BDO minted on its own. A one-off is a
+  // group of ONE — not a member of a "singles" bucket. Bucketing them meant a
+  // single pick could ship two unrelated objects in the same drop: a
+  // certificate of authenticity alongside a padel card.
+  var unitNamesRaw = (section.getAttribute("data-unit-names") || "").split(",");
+  var groups = [];
+  var seen = {};
+  for (var i = 0; i < unitIds.length; i++) {
+    var sid = unitSeries[i] || "";
+    var key = sid || ("asset:" + unitIds[i]);
+    var label = sid ? (b64(unitSeriesNamesRaw[i]) || "Series") : (b64(unitNamesRaw[i]) || "BDO");
+    if (!(key in seen)) {
+      seen[key] = { id: key, label: label, count: 0 };
+      groups.push(seen[key]);
+    }
+    seen[key].count++;
+  }
+
+  function unitsFor(key) {
+    if (key === "*") return unitIds;
+    var out = [];
+    for (var i = 0; i < unitIds.length; i++) {
+      var sid = unitSeries[i] || "";
+      if ((sid || ("asset:" + unitIds[i])) === key) out.push(unitIds[i]);
+    }
+    return out;
+  }
+
+  function selectedSeries() {
+    return seriesSelect && seriesSelect.value ? seriesSelect.value : "*";
+  }
+
+  var countInput = section.querySelector("[data-drop-count]");
+  function syncCount() {
+    if (!countInput) return;
+    var n = unitsFor(selectedSeries()).length;
+    countInput.max = String(n);
+    countInput.value = String(n);
+    var lbl = countInput.parentNode && countInput.parentNode.querySelector("label");
+    if (lbl) lbl.textContent = "Units (max " + n + ")";
+  }
+
+  if (seriesSelect && groups.length > 1) {
+    var optAll = document.createElement("option");
+    optAll.value = "*";
+    optAll.textContent = "All · " + unitIds.length + " units";
+    seriesSelect.appendChild(optAll);
+    groups.forEach(function (g) {
+      var o = document.createElement("option");
+      o.value = g.id;
+      o.textContent = g.label + " · " + g.count + (g.count === 1 ? " unit" : " units");
+      seriesSelect.appendChild(o);
+    });
+    if (seriesWrap) seriesWrap.classList.remove("d-none");
+    seriesSelect.addEventListener("change", syncCount);
+    syncCount();
+  }
+
   function setError(msg) {
     var n = section.querySelector("[data-drop-error]");
     if (n) { n.textContent = msg || "Something went wrong."; n.classList.remove("d-none"); }
@@ -1786,6 +1861,13 @@ if (depth !== null && depth !== undefined) {
     title.innerHTML = "<strong></strong> <span class='text-muted small'></span>";
     title.querySelector("strong").textContent = d.name || "Drop";
     title.querySelector("span").textContent = d.claimed + " of " + d.total + " claimed";
+    // Which series it dispenses — what tells two open drops apart at a glance.
+    if (d.seriesName) {
+      var ser = document.createElement("div");
+      ser.className = "text-muted small";
+      ser.textContent = "Series: " + d.seriesName;
+      title.appendChild(ser);
+    }
     var cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "btn btn-link btn-sm text-danger p-0";
@@ -1841,7 +1923,11 @@ if (depth !== null && depth !== undefined) {
   }
 
   function loadDrops() {
-    fetch(urls.list, { credentials: "same-origin" })
+    // Scoped to THIS collection: the platform list is account-wide, and an
+    // unfiltered render showed a drop from another collection as if it were
+    // dispensing these units.
+    var listUrl = urls.list + "?collectionId=" + encodeURIComponent(section.getAttribute("data-collection-id") || "");
+    fetch(listUrl, { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : { drops: [] }; })
       .then(function (j) {
         if (!listBox) return;
@@ -1854,14 +1940,17 @@ if (depth !== null && depth !== undefined) {
   var createBtn = section.querySelector("[data-drop-create]");
   if (createBtn) createBtn.addEventListener("click", function () {
     clearError();
-    var count = parseInt((section.querySelector("[data-drop-count]") || {}).value, 10) || unitIds.length;
+    // Narrow to the chosen series BEFORE counting, so "10 units" means ten of
+    // that series and never ten off the top of a mixed pile.
+    var pool = unitsFor(selectedSeries());
+    var count = parseInt((section.querySelector("[data-drop-count]") || {}).value, 10) || pool.length;
     var name = ((section.querySelector("[data-drop-name]") || {}).value || "").trim() ||
       (section.getAttribute("data-collection-name") || "Drop");
     createBtn.disabled = true;
     var reward = parseInt((section.querySelector("[data-drop-reward]") || {}).value, 10) || 0;
     var fd = new FormData();
     fd.append("name", name);
-    fd.append("unitIds", unitIds.join(","));
+    fd.append("unitIds", pool.join(","));
     fd.append("count", String(count));
     fd.append("rewardCredits", String(reward));
     if (csrf) fd.append("__RequestVerificationToken", csrf.value);
@@ -1885,6 +1974,297 @@ if (depth !== null && depth !== undefined) {
     // Custody note collapse (My BDOs): important but intrusive — the merchant can
     // fold the explanation and the choice persists per browser (localStorage), so
     // it isn't re-hidden every session. The one-line custody FACT stays visible.
+    // Event check-in, merchant side (RFC-PLUGIN-013 F4). Creates events for a
+    // collection and declares which SERIES are their ticket types. No camera
+    // here: the door scan is the integrator's own scanner, or a later slice.
+    [HttpGet("checkin.js")]
+    public IActionResult CheckinJs()
+    {
+        const string js = """
+(function () {
+  "use strict";
+
+  var section = document.querySelector("[data-checkin-section]");
+  if (!section) return;
+
+  var csrf = document.querySelector("input[name='__RequestVerificationToken']");
+  var collectionId = section.getAttribute("data-collection-id") || "";
+  var urls = {
+    events: section.getAttribute("data-url-events"),
+    create: section.getAttribute("data-url-event-create"),
+    close: section.getAttribute("data-url-event-close"),
+    types: section.getAttribute("data-url-types"),
+    typeAdd: section.getAttribute("data-url-type-add"),
+    typeRemove: section.getAttribute("data-url-type-remove")
+  };
+  var listBox = section.querySelector("[data-checkin-list]");
+
+  function setError(msg) {
+    var n = section.querySelector("[data-checkin-error]");
+    if (n) { n.textContent = msg || "Something went wrong."; n.classList.remove("d-none"); }
+  }
+  function clearError() {
+    var n = section.querySelector("[data-checkin-error]");
+    if (n) n.classList.add("d-none");
+  }
+  function post(url, fields, onOk) {
+    var fd = new FormData();
+    Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+    if (csrf) fd.append("__RequestVerificationToken", csrf.value);
+    fetch(url, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) { if (!res.ok) { setError(res.j && res.j.message); return; } onOk(res.j); })
+      .catch(function () { setError("Network error."); });
+  }
+
+  // Ticket types of ONE event, rendered under it. Text nodes throughout: a
+  // series is named by the issuer and must never reach innerHTML.
+  function renderTypes(host, ev) {
+    host.textContent = "";
+    fetch(urls.types + "?eventId=" + encodeURIComponent(ev.eventId), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : { ticketTypes: [], selectableSeries: [] }; })
+      .then(function (j) {
+        var types = j.ticketTypes || [];
+        var free = j.selectableSeries || [];
+
+        var head = document.createElement("div");
+        head.className = "small fw-semibold mt-2";
+        head.textContent = "Ticket types";
+        host.appendChild(head);
+
+        if (types.length === 0) {
+          // Not decoration: with no types the door admits nobody, and the door
+          // is a bad place to learn that.
+          var warn = document.createElement("div");
+          warn.className = "small text-warning";
+          warn.textContent = "This event admits nobody yet. Add at least one ticket type.";
+          host.appendChild(warn);
+        }
+
+        types.forEach(function (t) {
+          var row = document.createElement("div");
+          row.className = "d-flex align-items-center gap-2 small";
+          var nm = document.createElement("span");
+          nm.textContent = t.label || "Ticket";
+          var cnt = document.createElement("span");
+          cnt.className = "text-muted";
+          cnt.textContent = t.checkedIn + " of " + t.unitCount + " inside";
+          var rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn btn-link btn-sm text-danger p-0 ms-auto";
+          rm.textContent = "Remove";
+          rm.addEventListener("click", function () {
+            clearError();
+            rm.disabled = true;
+            post(urls.typeRemove, { ticketTypeId: t.id }, function () { renderTypes(host, ev); });
+            rm.disabled = false;
+          });
+          row.appendChild(nm); row.appendChild(cnt); row.appendChild(rm);
+          host.appendChild(row);
+        });
+
+        if (ev.status === "active" && free.length > 0) {
+          var wrap = document.createElement("div");
+          wrap.className = "d-flex gap-2 align-items-center mt-1";
+          var sel = document.createElement("select");
+          sel.className = "form-select form-select-sm";
+          sel.style.maxWidth = "16rem";
+          free.forEach(function (sr) {
+            var o = document.createElement("option");
+            o.value = sr.id;
+            o.textContent = (sr.name || "Series") + " · " + sr.unitCount + " units";
+            sel.appendChild(o);
+          });
+          var addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "btn btn-outline-secondary btn-sm";
+          addBtn.textContent = "Add ticket type";
+          addBtn.addEventListener("click", function () {
+            clearError();
+            addBtn.disabled = true;
+            post(urls.typeAdd, { eventId: ev.eventId, groupId: sel.value }, function () {
+              addBtn.disabled = false;
+              renderTypes(host, ev);
+              loadEvents();
+            });
+          });
+          wrap.appendChild(sel); wrap.appendChild(addBtn);
+          host.appendChild(wrap);
+        }
+      })
+      .catch(function () {});
+  }
+
+  function renderEvent(ev) {
+    var wrap = document.createElement("div");
+    wrap.className = "border rounded p-2 mb-2";
+
+    var head = document.createElement("div");
+    head.className = "d-flex justify-content-between align-items-center flex-wrap gap-2";
+    var title = document.createElement("strong");
+    title.textContent = ev.name || "Event";
+    if (ev.status !== "active") title.textContent += " (closed)";
+    var counts = document.createElement("span");
+    counts.className = "text-muted small";
+    counts.textContent = ev.checkedIn + " of " + ev.totalTickets + " checked in";
+    head.appendChild(title); head.appendChild(counts);
+    wrap.appendChild(head);
+
+    var typesHost = document.createElement("div");
+    wrap.appendChild(typesHost);
+    renderTypes(typesHost, ev);
+
+    if (ev.status === "active") {
+      var closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "btn btn-link btn-sm text-danger p-0 mt-1";
+      closeBtn.textContent = "Close event";
+      closeBtn.addEventListener("click", function () {
+        clearError();
+        closeBtn.disabled = true;
+        post(urls.close, { eventId: ev.eventId }, function () { loadEvents(); });
+      });
+      wrap.appendChild(closeBtn);
+    }
+
+    listBox.appendChild(wrap);
+  }
+
+  function loadEvents() {
+    fetch(urls.events + "?collectionId=" + encodeURIComponent(collectionId), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : { events: [] }; })
+      .then(function (j) {
+        if (!listBox) return;
+        listBox.textContent = "";
+        (j.events || []).forEach(renderEvent);
+      })
+      .catch(function () {});
+  }
+
+  var createBtn = section.querySelector("[data-checkin-create]");
+  if (createBtn) createBtn.addEventListener("click", function () {
+    clearError();
+    var name = ((section.querySelector("[data-checkin-name]") || {}).value || "").trim() ||
+      (section.getAttribute("data-collection-name") || "Event");
+    createBtn.disabled = true;
+    post(urls.create, { name: name, collectionId: collectionId }, function () {
+      createBtn.disabled = false;
+      loadEvents();
+    });
+  });
+
+  loadEvents();
+})();
+""";
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        return Content(js, "application/javascript");
+    }
+
+    // Organisers (RFC-PLUGIN-012 P3): who besides the issuer may run this
+    // collection's doors. The card starts hidden and only reveals itself to the
+    // collection's issuer — the platform will not even confirm the collection
+    // exists to anyone else, so there is nothing to show them.
+    [HttpGet("organizers.js")]
+    public IActionResult OrganizersJs()
+    {
+        const string js = """
+(function () {
+  "use strict";
+
+  var section = document.querySelector("[data-organizers-section]");
+  if (!section) return;
+
+  var csrf = document.querySelector("input[name='__RequestVerificationToken']");
+  var collectionId = section.getAttribute("data-collection-id") || "";
+  var urls = {
+    list: section.getAttribute("data-url-list"),
+    grant: section.getAttribute("data-url-grant"),
+    revoke: section.getAttribute("data-url-revoke")
+  };
+  var listBox = section.querySelector("[data-organizers-list]");
+  var emailInput = section.querySelector("[data-organizer-email]");
+  var addBtn = section.querySelector("[data-organizer-add]");
+
+  function setError(msg) {
+    var n = section.querySelector("[data-organizer-error]");
+    if (n) { n.textContent = msg || "Something went wrong."; n.classList.remove("d-none"); }
+  }
+  function clearError() {
+    var n = section.querySelector("[data-organizer-error]");
+    if (n) n.classList.add("d-none");
+  }
+  function post(url, fields, onOk) {
+    var fd = new FormData();
+    Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+    if (csrf) fd.append("__RequestVerificationToken", csrf.value);
+    fetch(url, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) { if (!res.ok) { setError(res.j && res.j.message); return; } onOk(res.j); })
+      .catch(function () { setError("Network error."); });
+  }
+
+  function load() {
+    fetch(urls.list + "?collectionId=" + encodeURIComponent(collectionId), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : { isIssuer: false, organizers: [] }; })
+      .then(function (j) {
+        // Only the issuer sees this card at all.
+        if (!j.isIssuer) { section.classList.add("d-none"); return; }
+        section.classList.remove("d-none");
+
+        var rows = j.organizers || [];
+        listBox.textContent = "";
+        if (rows.length === 0) {
+          var none = document.createElement("div");
+          none.className = "small text-muted";
+          none.textContent = "Nobody yet — only you can run this collection's doors.";
+          listBox.appendChild(none);
+          return;
+        }
+        rows.forEach(function (o) {
+          var row = document.createElement("div");
+          row.className = "d-flex align-items-center gap-2 small";
+          var who = document.createElement("span");
+          // textContent, never innerHTML: this string came from a user.
+          who.textContent = o.email || "(unknown)";
+          var rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn btn-link btn-sm text-danger p-0 ms-auto";
+          rm.textContent = "Remove";
+          rm.addEventListener("click", function () {
+            clearError();
+            rm.disabled = true;
+            post(urls.revoke, { grantId: o.id }, function () { load(); });
+          });
+          row.appendChild(who);
+          row.appendChild(rm);
+          listBox.appendChild(row);
+        });
+      })
+      .catch(function () { section.classList.add("d-none"); });
+  }
+
+  if (addBtn) {
+    addBtn.addEventListener("click", function () {
+      clearError();
+      var email = (emailInput && emailInput.value || "").trim();
+      if (!email) { setError("Enter the email address they sign in with."); return; }
+      addBtn.disabled = true;
+      post(urls.grant, { collectionId: collectionId, email: email }, function () {
+        addBtn.disabled = false;
+        if (emailInput) emailInput.value = "";
+        load();
+      });
+      addBtn.disabled = false;
+    });
+  }
+
+  load();
+})();
+""";
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        return Content(js, "application/javascript");
+    }
+
     [HttpGet("custody-note.js")]
     public IActionResult CustodyNoteJs()
     {
